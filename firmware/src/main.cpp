@@ -4,7 +4,7 @@
 
 const char* ssid = "YOUR_SSID";
 const char* password = "YOUR_PASSWORD";
-const char* hostIP = "192.168.1.100"; // Target RPi IP
+const char* hostIP = "192.168.1.100";
 const int udpPort = 4444;
 
 WiFiUDP udp;
@@ -15,8 +15,8 @@ struct __attribute__((packed)) SensorPayload {
   float accel_x;
   float accel_y;
   float accel_z;
-  float temp;
-  float current;
+  float temp;       // NTC thermistor on A0
+  // current reserved for UNO Q deployment
 };
 
 SensorPayload payload;
@@ -36,9 +36,11 @@ void loop() {
     last_sample_time = current_time;
     payload.timestamp_us = current_time;
     payload.sequence_id = seq_counter++;
-    // Replace with real ADC/I2C reads when sensors are wired
-    payload.accel_x = 1.0; payload.accel_y = 1.0; payload.accel_z = 9.8;
-    payload.temp = 25.5; payload.current = 5.0;
+    // Replace with real MPU-6050 I2C reads and NTC ADC read
+    payload.accel_x = 1.0;
+    payload.accel_y = 1.0;
+    payload.accel_z = 9.8;
+    payload.temp = 25.5;
     udp.beginPacket(hostIP, udpPort);
     udp.write((const uint8_t*)&payload, sizeof(SensorPayload));
     udp.endPacket();
