@@ -1,0 +1,724 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EdgeGuard — Live Monitor</title>
+<style>
+/* ── Design tokens ──────────────────────────────────────────────────── */
+:root {
+  --bg:          #0d1117;
+  --surface:     #161b22;
+  --surface-2:   #1c2128;
+  --border:      #30363d;
+  --text:        #e6edf3;
+  --text-muted:  #848d97;
+  --text-faint:  #3d444d;
+  --green:       #3fb950;
+  --yellow:      #d29922;
+  --red:         #f85149;
+  --teal:        #39c5cf;
+  --teal-dim:    #1a3a3f;
+  --radius:      8px;
+  --radius-lg:   14px;
+  --font:        'Inter', 'Segoe UI', system-ui, sans-serif;
+}
+
+/* ── Reset ──────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { font-size: 16px; }
+body {
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Header ─────────────────────────────────────────────────────────── */
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 24px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 700;
+  font-size: 1.05rem;
+  letter-spacing: -.02em;
+}
+.logo svg { flex-shrink: 0; }
+.ws-badge {
+  font-size: .72rem;
+  padding: 3px 9px;
+  border-radius: 99px;
+  background: var(--teal-dim);
+  color: var(--teal);
+  font-weight: 600;
+  transition: background .4s, color .4s;
+}
+.ws-badge.disconnected { background: #2d1a1a; color: var(--red); }
+
+/* ── Tabs ───────────────────────────────────────────────────────────── */
+nav {
+  display: flex;
+  gap: 2px;
+  padding: 0 24px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+nav button {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: .85rem;
+  font-weight: 500;
+  padding: 10px 16px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: color .15s, border-color .15s;
+}
+nav button.active {
+  color: var(--teal);
+  border-bottom-color: var(--teal);
+}
+nav button:hover:not(.active) { color: var(--text); }
+
+/* ── Main layout ─────────────────────────────────────────────────────── */
+main {
+  flex: 1;
+  padding: 24px;
+  max-width: 1280px;
+  margin: 0 auto;
+  width: 100%;
+}
+.panel { display: none; }
+.panel.active { display: block; }
+
+/* ── Health hero ─────────────────────────────────────────────────────── */
+.health-hero {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 28px 32px;
+  margin-bottom: 24px;
+}
+.traffic-light {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: var(--text-faint);
+  box-shadow: 0 0 0 0 transparent;
+  transition: background .5s, box-shadow .5s;
+  flex-shrink: 0;
+}
+.traffic-light.green  { background: var(--green);  box-shadow: 0 0 24px 4px rgba(63,185,80,.4); }
+.traffic-light.yellow { background: var(--yellow); box-shadow: 0 0 24px 4px rgba(210,153,34,.4); }
+.traffic-light.red    { background: var(--red);    box-shadow: 0 0 24px 4px rgba(248,81,73,.45); }
+.health-info h1 { font-size: 1.6rem; font-weight: 700; letter-spacing: -.03em; }
+.health-info .label {
+  font-size: .78rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  margin-top: 4px;
+}
+.confidence-bar-wrap {
+  margin-top: 10px;
+  height: 6px;
+  width: 220px;
+  background: var(--surface-2);
+  border-radius: 99px;
+  overflow: hidden;
+}
+.confidence-bar {
+  height: 100%;
+  border-radius: 99px;
+  background: var(--green);
+  transition: width .5s ease, background .5s;
+  width: 0%;
+}
+
+/* ── KPI grid ────────────────────────────────────────────────────────── */
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 14px;
+  margin-bottom: 24px;
+}
+.kpi {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+}
+.kpi .kpi-label {
+  font-size: .72rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  margin-bottom: 6px;
+}
+.kpi .kpi-value {
+  font-size: 1.55rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -.03em;
+  line-height: 1;
+}
+.kpi .kpi-unit {
+  font-size: .75rem;
+  color: var(--text-muted);
+  margin-left: 3px;
+  font-weight: 400;
+}
+.kpi.warn .kpi-value  { color: var(--yellow); }
+.kpi.error .kpi-value { color: var(--red); }
+.kpi.ok   .kpi-value  { color: var(--green); }
+
+/* ── Prob bars ───────────────────────────────────────────────────────── */
+.section-title {
+  font-size: .78rem;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+}
+.prob-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px 20px;
+  margin-bottom: 24px;
+}
+.prob-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.prob-row:last-child { margin-bottom: 0; }
+.prob-label { font-size: .82rem; width: 110px; color: var(--text-muted); }
+.prob-track {
+  flex: 1;
+  height: 10px;
+  background: var(--surface-2);
+  border-radius: 99px;
+  overflow: hidden;
+}
+.prob-fill {
+  height: 100%;
+  border-radius: 99px;
+  transition: width .5s ease;
+}
+.prob-fill.normal   { background: var(--green); }
+.prob-fill.imbalance { background: var(--yellow); }
+.prob-fill.fault    { background: var(--red); }
+.prob-pct {
+  font-size: .82rem;
+  font-variant-numeric: tabular-nums;
+  width: 44px;
+  text-align: right;
+  color: var(--text);
+}
+
+/* ── Anomaly score ───────────────────────────────────────────────────── */
+.anomaly-wrap { display: flex; align-items: center; gap: 16px; }
+.anomaly-ring {
+  width: 80px;
+  height: 80px;
+  position: relative;
+  flex-shrink: 0;
+}
+.anomaly-ring svg { width: 80px; height: 80px; transform: rotate(-90deg); }
+.anomaly-ring circle.track { fill: none; stroke: var(--surface-2); stroke-width: 8; }
+.anomaly-ring circle.fill  {
+  fill: none;
+  stroke: var(--teal);
+  stroke-width: 8;
+  stroke-linecap: round;
+  stroke-dasharray: 207;
+  stroke-dashoffset: 207;
+  transition: stroke-dashoffset .6s ease, stroke .4s;
+}
+.anomaly-ring .center-text {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: .85rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.anomaly-info .score-label {
+  font-size: .72rem;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  color: var(--text-muted);
+}
+.anomaly-info .threshold-note {
+  font-size: .72rem;
+  color: var(--text-faint);
+  margin-top: 2px;
+}
+
+/* ── Telemetry panel ─────────────────────────────────────────────────── */
+.telem-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 14px;
+  margin-bottom: 24px;
+}
+.telem-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+}
+.telem-card h3 {
+  font-size: .72rem;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+}
+.telem-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: .83rem;
+}
+.telem-row:last-child { border-bottom: none; }
+.telem-key { color: var(--text-muted); }
+.telem-val {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--text);
+}
+.telem-val.warn  { color: var(--yellow); }
+.telem-val.error { color: var(--red); }
+.telem-val.ok    { color: var(--green); }
+
+/* ── Log panel ───────────────────────────────────────────────────────── */
+.log-box {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+  font-size: .78rem;
+  line-height: 1.6;
+  height: 420px;
+  overflow-y: auto;
+  color: var(--text-muted);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.log-line.info    { color: var(--teal); }
+.log-line.warning { color: var(--yellow); }
+.log-line.error   { color: var(--red); }
+.log-line.data    { color: var(--text); }
+
+/* ── Placeholder / no-data ───────────────────────────────────────────── */
+.placeholder {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--text-faint);
+  font-size: .88rem;
+}
+
+/* ── Footer ─────────────────────────────────────────────────────────── */
+footer {
+  text-align: center;
+  padding: 12px;
+  font-size: .72rem;
+  color: var(--text-faint);
+  border-top: 1px solid var(--border);
+}
+
+/* ── Responsive ─────────────────────────────────────────────────────── */
+@media (max-width: 600px) {
+  main { padding: 16px; }
+  .health-hero { flex-direction: column; text-align: center; }
+  .confidence-bar-wrap { margin: 10px auto 0; }
+}
+</style>
+</head>
+<body>
+
+<!-- ── Header ── -->
+<header>
+  <div class="logo">
+    <!-- Shield SVG logo -->
+    <svg width="28" height="28" viewBox="0 0 28 28" fill="none" aria-label="EdgeGuard logo">
+      <path d="M14 2L4 6v8c0 5.5 4.3 10.6 10 12 5.7-1.4 10-6.5 10-12V6L14 2z"
+            fill="none" stroke="#39c5cf" stroke-width="1.8" stroke-linejoin="round"/>
+      <path d="M9 14l3.5 3.5L19 10" stroke="#39c5cf" stroke-width="1.8"
+            stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    EdgeGuard
+  </div>
+  <span id="wsBadge" class="ws-badge disconnected">⬤ Disconnected</span>
+</header>
+
+<!-- ── Tabs ── -->
+<nav>
+  <button class="active" onclick="switchTab('operator', this)">Operator</button>
+  <button onclick="switchTab('telemetry', this)">Engineering Telemetry</button>
+  <button onclick="switchTab('log', this)">Raw Log</button>
+</nav>
+
+<!-- ── Main ── -->
+<main>
+
+  <!-- OPERATOR PANEL -->
+  <section id="panel-operator" class="panel active">
+    <!-- Health hero -->
+    <div class="health-hero">
+      <div id="trafficLight" class="traffic-light"></div>
+      <div class="health-info">
+        <div class="label">Machine State</div>
+        <h1 id="stateLabel">Waiting…</h1>
+        <div id="confWrap" class="confidence-bar-wrap">
+          <div id="confBar" class="confidence-bar"></div>
+        </div>
+        <div class="label" style="margin-top:6px" id="confLabel">Confidence: —</div>
+      </div>
+    </div>
+
+    <!-- KPI strip -->
+    <div class="kpi-grid">
+      <div class="kpi" id="kpiInferHz">
+        <div class="kpi-label">Inference Rate</div>
+        <div class="kpi-value">—<span class="kpi-unit">Hz</span></div>
+      </div>
+      <div class="kpi" id="kpiTemp">
+        <div class="kpi-label">Temperature</div>
+        <div class="kpi-value">—<span class="kpi-unit">°C</span></div>
+      </div>
+      <div class="kpi" id="kpiAnomalyScore">
+        <div class="kpi-label">Anomaly Score</div>
+        <div class="kpi-value">—</div>
+      </div>
+      <div class="kpi" id="kpiUptime">
+        <div class="kpi-label">Uptime</div>
+        <div class="kpi-value">—<span class="kpi-unit">s</span></div>
+      </div>
+    </div>
+
+    <!-- Class probability bars -->
+    <div class="section-title">Class Probabilities</div>
+    <div class="prob-card" id="probCard">
+      <div class="placeholder" id="probPlaceholder">No model output yet — waiting for inference stream.</div>
+    </div>
+
+    <!-- Anomaly score ring -->
+    <div class="section-title" style="margin-top:24px">Anomaly Score</div>
+    <div class="prob-card">
+      <div class="anomaly-wrap">
+        <div class="anomaly-ring">
+          <svg viewBox="0 0 72 72">
+            <circle class="track" cx="36" cy="36" r="33"/>
+            <circle class="fill" id="anomalyArc" cx="36" cy="36" r="33"
+                    style="stroke-dasharray:207;stroke-dashoffset:207"/>
+          </svg>
+          <div class="center-text" id="anomalyPct">—</div>
+        </div>
+        <div class="anomaly-info">
+          <div class="score-label">Normalised Anomaly Score</div>
+          <div id="anomalyRaw" style="font-size:.95rem;font-weight:700;margin-top:4px">—</div>
+          <div class="threshold-note" id="anomalyThreshNote">Threshold: —</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- TELEMETRY PANEL -->
+  <section id="panel-telemetry" class="panel">
+    <div class="telem-grid">
+
+      <div class="telem-card">
+        <h3>UDP Pipeline</h3>
+        <div class="telem-row"><span class="telem-key">Packets received</span><span class="telem-val" id="tPktsRx">—</span></div>
+        <div class="telem-row"><span class="telem-key">Packets dropped</span><span class="telem-val" id="tPktsDrop">—</span></div>
+        <div class="telem-row"><span class="telem-key">Drop rate</span><span class="telem-val" id="tDropRate">—</span></div>
+        <div class="telem-row"><span class="telem-key">Jitter (σ)</span><span class="telem-val" id="tJitter">—</span></div>
+        <div class="telem-row"><span class="telem-key">Last seq gap</span><span class="telem-val" id="tSeqGap">—</span></div>
+      </div>
+
+      <div class="telem-card">
+        <h3>ML Inference</h3>
+        <div class="telem-row"><span class="telem-key">Inference latency</span><span class="telem-val" id="tInferMs">—</span></div>
+        <div class="telem-row"><span class="telem-key">Preprocessing</span><span class="telem-val" id="tPreMs">—</span></div>
+        <div class="telem-row"><span class="telem-key">Buffer snapshot</span><span class="telem-val" id="tSnapMs">—</span></div>
+        <div class="telem-row"><span class="telem-key">Total cycle</span><span class="telem-val" id="tCycleMs">—</span></div>
+        <div class="telem-row"><span class="telem-key">Budget headroom</span><span class="telem-val" id="tHeadroom">—</span></div>
+      </div>
+
+      <div class="telem-card">
+        <h3>Circular Buffer</h3>
+        <div class="telem-row"><span class="telem-key">Buffer size</span><span class="telem-val" id="tBufSize">—</span></div>
+        <div class="telem-row"><span class="telem-key">Write index</span><span class="telem-val" id="tWriteIdx">—</span></div>
+        <div class="telem-row"><span class="telem-key">Fill %</span><span class="telem-val" id="tBufFill">—</span></div>
+        <div class="telem-row"><span class="telem-key">Sample rate (meas.)</span><span class="telem-val" id="tSampleRate">—</span></div>
+      </div>
+
+      <div class="telem-card">
+        <h3>System</h3>
+        <div class="telem-row"><span class="telem-key">Pi CPU %</span><span class="telem-val" id="tCpu">—</span></div>
+        <div class="telem-row"><span class="telem-key">Pi RAM %</span><span class="telem-val" id="tRam">—</span></div>
+        <div class="telem-row"><span class="telem-key">Process uptime</span><span class="telem-val" id="tUptime">—</span></div>
+        <div class="telem-row"><span class="telem-key">WS clients</span><span class="telem-val" id="tWsClients">—</span></div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- RAW LOG PANEL -->
+  <section id="panel-log" class="panel">
+    <div class="section-title">Live JSON stream from main.py stdout</div>
+    <div class="log-box" id="logBox"></div>
+  </section>
+
+</main>
+
+<footer>EdgeGuard Prototype — ESP8266 → Raspberry Pi UDP → ONNX Inference</footer>
+
+<script>
+// ── Config ────────────────────────────────────────────────────────────────
+// main.py pipes JSON lines to stdout; the FastAPI server reads those and
+// broadcasts them over WebSocket at ws://<pi-ip>:8765/ws
+// Change this to your Pi's IP if not running on the same machine.
+const WS_URL = `ws://${location.hostname || 'localhost'}:8765/ws`;
+
+// ── Tab switching ──────────────────────────────────────────────────────────
+function switchTab(name, btn) {
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+  document.getElementById('panel-' + name).classList.add('active');
+  btn.classList.add('active');
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+const fmt = (v, d=1) => v == null ? '—' : Number(v).toFixed(d);
+
+function colorClass(val, warnThresh, errThresh) {
+  if (val == null) return '';
+  if (val >= errThresh)  return 'error';
+  if (val >= warnThresh) return 'warn';
+  return 'ok';
+}
+
+function setKpi(id, value, unit='', cls='') {
+  const el = $(id);
+  if (!el) return;
+  const unitHtml = unit ? `<span class="kpi-unit">${unit}</span>` : '';
+  el.querySelector('.kpi-value').innerHTML = `${value}${unitHtml}`;
+  el.className = `kpi ${cls}`;
+}
+
+function setTelem(id, value, cls='') {
+  const el = $(id);
+  if (!el) return;
+  el.textContent = value ?? '—';
+  el.className = `telem-val ${cls}`;
+}
+
+// ── Probability bars (dynamic, builds from classes array) ─────────────────
+const COLOR_MAP = { normal: 'normal', imbalance: 'imbalance', fault: 'fault', anomaly: 'fault' };
+
+function renderProbBars(probs) {
+  const card = $('probCard');
+  $('probPlaceholder') && ($('probPlaceholder').style.display = 'none');
+
+  // Build or reuse rows
+  for (const [cls, pct] of Object.entries(probs)) {
+    const rowId = 'prob-row-' + cls;
+    let row = document.getElementById(rowId);
+    if (!row) {
+      row = document.createElement('div');
+      row.className = 'prob-row';
+      row.id = rowId;
+      const colorCls = COLOR_MAP[cls] || 'normal';
+      row.innerHTML = `
+        <span class="prob-label">${cls}</span>
+        <div class="prob-track"><div class="prob-fill ${colorCls}" style="width:0%"></div></div>
+        <span class="prob-pct">0%</span>`;
+      card.appendChild(row);
+    }
+    const fill = row.querySelector('.prob-fill');
+    const label = row.querySelector('.prob-pct');
+    fill.style.width = `${(pct * 100).toFixed(1)}%`;
+    label.textContent = `${(pct * 100).toFixed(0)}%`;
+  }
+}
+
+// ── Anomaly arc ───────────────────────────────────────────────────────────
+function updateAnomalyRing(score, threshold) {
+  const maxScore = threshold ? threshold * 3 : 1;
+  const pct = Math.min(score / maxScore, 1);
+  const CIRC = 207;
+  const arc = $('anomalyArc');
+  arc.style.strokeDashoffset = CIRC * (1 - pct);
+  arc.style.stroke = pct > 0.75 ? 'var(--red)' : pct > 0.45 ? 'var(--yellow)' : 'var(--teal)';
+  $('anomalyPct').textContent = `${(pct * 100).toFixed(0)}%`;
+  $('anomalyRaw').textContent = fmt(score, 4);
+  $('anomalyThreshNote').textContent = threshold != null ? `Threshold: ${fmt(threshold, 4)}` : 'Threshold: —';
+}
+
+// ── Health light ──────────────────────────────────────────────────────────
+const STATE_COLOR = {
+  normal: 'green',
+  imbalance: 'yellow',
+  fault: 'red',
+  anomaly: 'red',
+  unknown: ''
+};
+
+function updateHealth(state, confidence, anomalyScore, threshold) {
+  const color = STATE_COLOR[state?.toLowerCase()] ?? '';
+  const light = $('trafficLight');
+  light.className = `traffic-light ${color}`;
+  $('stateLabel').textContent = state ? state.toUpperCase() : 'UNKNOWN';
+  const pct = confidence != null ? Math.round(confidence * 100) : null;
+  $('confBar').style.width = pct != null ? pct + '%' : '0%';
+  $('confBar').style.background = color === 'green' ? 'var(--green)' : color === 'yellow' ? 'var(--yellow)' : 'var(--red)';
+  $('confLabel').textContent = pct != null ? `Confidence: ${pct}%` : 'Confidence: —';
+}
+
+// ── Main data handler ─────────────────────────────────────────────────────
+function applyFrame(d) {
+  // ── Operator view ──────────────────────────────────────────────────
+  const inference = d.inference || {};
+  const pipeline  = d.pipeline  || {};
+  const system    = d.system    || {};
+  const buffer    = d.buffer    || {};
+
+  const state      = inference.state      ?? 'unknown';
+  const confidence = inference.confidence ?? null;
+  const probs      = inference.probabilities ?? {};
+  const anomaly    = inference.anomaly_score ?? null;
+  const threshold  = inference.anomaly_threshold ?? null;
+
+  updateHealth(state, confidence, anomaly, threshold);
+
+  if (Object.keys(probs).length > 0) renderProbBars(probs);
+  if (anomaly != null) updateAnomalyRing(anomaly, threshold);
+
+  const inferHz   = inference.infer_hz;
+  const temp      = d.sensor?.temp_c;
+  const uptime    = system.uptime_s;
+  setKpi('kpiInferHz',     fmt(inferHz, 2),        'Hz', inferHz != null && inferHz < 8 ? 'warn' : 'ok');
+  setKpi('kpiTemp',        fmt(temp, 1),            '°C', temp != null && temp > 60 ? 'warn' : '');
+  setKpi('kpiAnomalyScore',fmt(anomaly, 4),         '', anomaly != null && threshold != null && anomaly > threshold ? 'error' : 'ok');
+  setKpi('kpiUptime',      fmt(uptime, 0),          's', '');
+
+  // ── Telemetry view ────────────────────────────────────────────────
+  const dropRate  = pipeline.drop_rate_pct ?? null;
+  const jitter    = pipeline.jitter_us     ?? null;
+
+  setTelem('tPktsRx',    pipeline.packets_rx   ?? '—');
+  setTelem('tPktsDrop',  pipeline.packets_dropped ?? '—', dropRate > 2 ? 'error' : dropRate > 0.5 ? 'warn' : 'ok');
+  setTelem('tDropRate',  dropRate != null ? `${fmt(dropRate,2)}%` : '—', colorClass(dropRate, 0.5, 2));
+  setTelem('tJitter',    jitter   != null ? `${fmt(jitter,1)} µs` : '—', colorClass(jitter, 500, 2000));
+  setTelem('tSeqGap',    pipeline.last_seq_gap ?? '—');
+
+  const inferMs = inference.latency_ms;
+  const preMs   = inference.preprocess_ms;
+  const snapMs  = inference.snapshot_ms;
+  const cycleMs = inference.cycle_ms;
+  const headroom = cycleMs != null ? (100 - cycleMs).toFixed(1) : null;
+
+  setTelem('tInferMs',   inferMs != null ? `${fmt(inferMs,1)} ms` : '—', colorClass(inferMs, 60, 90));
+  setTelem('tPreMs',     preMs   != null ? `${fmt(preMs,  1)} ms` : '—');
+  setTelem('tSnapMs',    snapMs  != null ? `${fmt(snapMs, 2)} ms` : '—');
+  setTelem('tCycleMs',   cycleMs != null ? `${fmt(cycleMs,1)} ms` : '—', colorClass(cycleMs, 80, 95));
+  setTelem('tHeadroom',  headroom != null ? `${headroom} ms` : '—', headroom != null && Number(headroom) < 10 ? 'warn' : 'ok');
+
+  const bufFill = buffer.write_index != null && buffer.size != null
+    ? ((buffer.write_index / buffer.size) * 100).toFixed(1) : null;
+  setTelem('tBufSize',    buffer.size        ?? '—');
+  setTelem('tWriteIdx',   buffer.write_index ?? '—');
+  setTelem('tBufFill',    bufFill != null ? `${bufFill}%` : '—', colorClass(bufFill != null ? 100 - bufFill : null, 10, 5));
+  setTelem('tSampleRate', pipeline.measured_hz != null ? `${fmt(pipeline.measured_hz,1)} Hz` : '—');
+
+  setTelem('tCpu',      system.cpu_pct   != null ? `${fmt(system.cpu_pct, 1)}%`  : '—', colorClass(system.cpu_pct, 70, 90));
+  setTelem('tRam',      system.ram_pct   != null ? `${fmt(system.ram_pct, 1)}%`  : '—', colorClass(system.ram_pct, 75, 90));
+  setTelem('tUptime',   system.uptime_s  != null ? `${fmt(system.uptime_s,0)} s` : '—');
+  setTelem('tWsClients',system.ws_clients ?? '—');
+}
+
+// ── Raw log ───────────────────────────────────────────────────────────────
+const MAX_LOG_LINES = 300;
+
+function appendLog(raw, level='data') {
+  const box = $('logBox');
+  const line = document.createElement('div');
+  line.className = `log-line ${level}`;
+  const ts = new Date().toISOString().substring(11, 23);
+  line.textContent = `[${ts}] ${raw}`;
+  box.appendChild(line);
+  while (box.children.length > MAX_LOG_LINES) box.removeChild(box.firstChild);
+  box.scrollTop = box.scrollHeight;
+}
+
+// ── WebSocket ─────────────────────────────────────────────────────────────
+let ws = null;
+let reconnectTimer = null;
+let reconnectDelay = 2000;
+
+function connect() {
+  ws = new WebSocket(WS_URL);
+
+  ws.onopen = () => {
+    reconnectDelay = 2000;
+    const badge = $('wsBadge');
+    badge.textContent = '⬤ Connected';
+    badge.classList.remove('disconnected');
+    appendLog('WebSocket connected to ' + WS_URL, 'info');
+  };
+
+  ws.onmessage = evt => {
+    appendLog(evt.data, 'data');
+    try {
+      const d = JSON.parse(evt.data);
+      applyFrame(d);
+    } catch (e) {
+      appendLog('JSON parse error: ' + e.message, 'warning');
+    }
+  };
+
+  ws.onerror = () => appendLog('WebSocket error', 'error');
+
+  ws.onclose = () => {
+    const badge = $('wsBadge');
+    badge.textContent = '⬤ Disconnected';
+    badge.classList.add('disconnected');
+    appendLog(`WebSocket closed — reconnecting in ${reconnectDelay/1000}s…`, 'warning');
+    reconnectTimer = setTimeout(() => {
+      reconnectDelay = Math.min(reconnectDelay * 1.5, 30000);
+      connect();
+    }, reconnectDelay);
+  };
+}
+
+connect();
+</script>
+</body>
+</html>

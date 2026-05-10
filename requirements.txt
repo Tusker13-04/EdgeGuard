@@ -1,0 +1,20 @@
+# EdgeGuard – Raspberry Pi inference node
+# Pin versions for reproducible environments
+
+# ── Core I/O ──────────────────────────────────────────────────────────────────
+numpy>=1.24,<2.0          # circular buffer, preprocessing
+
+# ── ML Inference ─────────────────────────────────────────────────────────────
+onnxruntime>=1.17,<2.0    # CPU-only ONNX runtime (no CUDA dep on Pi)
+
+# ── Dashboard API server ─────────────────────────────────────────────────────
+fastapi>=0.111,<1.0
+uvicorn[standard]>=0.29,<1.0
+websockets>=12.0,<14.0    # pulled in by uvicorn[standard]; listed explicitly
+
+# ── Serialisation ────────────────────────────────────────────────────────────
+orjson>=3.9,<4.0          # fast JSON serialisation for telemetry stream
+
+# ── Optional: offline training helpers (not needed at runtime on Pi) ─────────
+# scikit-learn>=1.4       # edge-training experiments
+# torch>=2.2              # ONNX export on dev machine, NOT on Pi
