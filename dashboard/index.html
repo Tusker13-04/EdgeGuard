@@ -3,738 +3,584 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>EdgeGuard — Predictive Maintenance</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300..700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<title>EdgeGuard</title>
 <style>
-/* ---- Design tokens ---------------------------------------------------- */
-:root {
-  --font-body:    'Inter', system-ui, sans-serif;
-  --font-mono:    'JetBrains Mono', monospace;
-
-  --text-xs:   clamp(0.75rem,  0.7rem  + 0.25vw, 0.875rem);
-  --text-sm:   clamp(0.875rem, 0.8rem  + 0.35vw, 1rem);
-  --text-base: clamp(1rem,     0.95rem + 0.25vw, 1.125rem);
-  --text-lg:   clamp(1.125rem, 1rem    + 0.75vw, 1.5rem);
-  --text-xl:   clamp(1.5rem,   1.2rem  + 1.25vw, 2.25rem);
-
-  --space-1: .25rem; --space-2: .5rem;  --space-3: .75rem;
-  --space-4: 1rem;   --space-6: 1.5rem; --space-8: 2rem;
-  --space-10: 2.5rem; --space-12: 3rem;
-
-  --radius-sm: .375rem; --radius-md: .5rem;
-  --radius-lg: .75rem;  --radius-xl: 1rem;
-  --radius-full: 9999px;
-
-  --transition: 180ms cubic-bezier(0.16,1,0.3,1);
-}
-
-[data-theme="dark"] {
-  --bg:              #0f0f0e;
-  --surface:         #161614;
-  --surface-2:       #1c1b19;
-  --surface-3:       #242320;
-  --border:          #2a2926;
-  --text:            #d4d3d0;
-  --text-muted:      #6b6a67;
-  --text-faint:      #3d3c3a;
-  --accent:          #4f98a3;
-  --accent-hover:    #3a7f8a;
-  --accent-dim:      rgba(79,152,163,.15);
-  --ok:              #6daa45;
-  --ok-dim:          rgba(109,170,69,.15);
-  --warn:            #e8af34;
-  --warn-dim:        rgba(232,175,52,.15);
-  --danger:          #dd6974;
-  --danger-dim:      rgba(221,105,116,.15);
-  --shadow:          0 4px 24px rgba(0,0,0,.4);
-}
-
-/* ---- Reset ------------------------------------------------------------ */
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-html { -webkit-font-smoothing: antialiased; scroll-behavior: smooth; }
-body {
-  min-height: 100dvh;
-  font-family: var(--font-body);
-  font-size: var(--text-sm);
-  color: var(--text);
-  background: var(--bg);
-  display: grid;
-  grid-template-rows: 56px 1fr;
-  grid-template-columns: 220px 1fr;
-  grid-template-areas:
-    "header header"
-    "sidebar main";
-}
-
-/* ---- Header ----------------------------------------------------------- */
-header {
-  grid-area: header;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 var(--space-6);
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
-  position: sticky; top: 0; z-index: 10;
-}
-.logo {
-  display: flex; align-items: center; gap: var(--space-2);
-  font-size: var(--text-sm); font-weight: 600; letter-spacing: -.01em;
-}
-.logo svg { flex-shrink: 0; }
-.header-right {
-  display: flex; align-items: center; gap: var(--space-4);
-}
-.ws-status {
-  display: flex; align-items: center; gap: var(--space-2);
-  font-size: var(--text-xs); color: var(--text-muted);
-}
-.ws-dot {
-  width: 7px; height: 7px; border-radius: var(--radius-full);
-  background: var(--text-faint);
-  transition: background var(--transition);
-}
-.ws-dot.connected { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
-.ws-dot.error      { background: var(--danger); }
-
-/* ---- Sidebar ---------------------------------------------------------- */
-nav {
-  grid-area: sidebar;
-  background: var(--surface);
-  border-right: 1px solid var(--border);
-  padding: var(--space-4) var(--space-3);
-  display: flex; flex-direction: column; gap: var(--space-1);
-  overflow-y: auto;
-}
-nav a {
-  display: flex; align-items: center; gap: var(--space-3);
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-md);
-  color: var(--text-muted);
-  text-decoration: none;
-  font-size: var(--text-sm);
-  transition: color var(--transition), background var(--transition);
-}
-nav a:hover { color: var(--text); background: var(--surface-2); }
-nav a.active {
-  color: var(--text); background: var(--surface-3);
-  font-weight: 500;
-}
-nav a svg { opacity: .6; flex-shrink: 0; }
-nav a.active svg { opacity: 1; }
-.nav-section {
-  font-size: var(--text-xs); color: var(--text-faint);
-  text-transform: uppercase; letter-spacing: .08em;
-  padding: var(--space-4) var(--space-3) var(--space-1);
-}
-
-/* ---- Main content ----------------------------------------------------- */
-main {
-  grid-area: main;
-  overflow-y: auto;
-  padding: var(--space-6);
-  display: flex; flex-direction: column; gap: var(--space-6);
-}
-.page { display: none; flex-direction: column; gap: var(--space-6); }
-.page.active { display: flex; }
-.page-title {
-  font-size: var(--text-xl); font-weight: 600; letter-spacing: -.02em;
-  color: var(--text);
-}
-.page-subtitle { font-size: var(--text-xs); color: var(--text-muted); margin-top: var(--space-1); }
-
-/* ---- KPI row ---------------------------------------------------------- */
-.kpi-row {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: var(--space-4);
-}
-.kpi-card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: var(--space-4) var(--space-5);
-}
-.kpi-label {
-  font-size: var(--text-xs); color: var(--text-muted);
-  text-transform: uppercase; letter-spacing: .07em; margin-bottom: var(--space-2);
-}
-.kpi-value {
-  font-size: var(--text-xl); font-weight: 700;
-  font-variant-numeric: tabular-nums lining-nums;
-  font-family: var(--font-mono);
-  letter-spacing: -.02em;
-  transition: color var(--transition);
-}
-.kpi-sub {
-  font-size: var(--text-xs); color: var(--text-muted); margin-top: var(--space-1);
-}
-
-/* ---- Health ring ------------------------------------------------------ */
-.health-section {
-  display: grid;
-  grid-template-columns: 220px 1fr;
-  gap: var(--space-6);
-  align-items: start;
-}
-.health-ring-wrap {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-xl);
-  padding: var(--space-6);
-  display: flex; flex-direction: column; align-items: center; gap: var(--space-4);
-}
-.ring-container {
-  position: relative; width: 160px; height: 160px;
-}
-.ring-label {
-  position: absolute; inset: 0;
-  display: flex; flex-direction: column;
-  align-items: center; justify-content: center;
-  pointer-events: none;
-}
-.ring-status-text {
-  font-size: var(--text-lg); font-weight: 700;
-  font-family: var(--font-mono);
-  transition: color var(--transition);
-}
-.ring-status-sub {
-  font-size: var(--text-xs); color: var(--text-muted); margin-top: 2px;
-}
-.health-label-name {
-  font-size: var(--text-sm); font-weight: 600;
-}
-.health-label-sub {
-  font-size: var(--text-xs); color: var(--text-muted); text-align: center;
-}
-
-/* ---- Chart cards ------------------------------------------------------ */
-.chart-card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-xl);
-  padding: var(--space-5);
-}
-.chart-header {
-  display: flex; align-items: center; justify-content: space-between;
-  margin-bottom: var(--space-4);
-}
-.chart-title {
-  font-size: var(--text-sm); font-weight: 600;
-}
-.chart-badge {
-  font-size: var(--text-xs); font-family: var(--font-mono);
-  padding: 2px var(--space-2);
-  border-radius: var(--radius-full);
-  background: var(--surface-3); color: var(--text-muted);
-}
-.chart-wrap { position: relative; height: 180px; }
-
-/* ---- Engineering table ----------------------------------------------- */
-.eng-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: var(--space-4);
-}
-.eng-metric {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: var(--space-4);
-}
-.eng-metric-label {
-  font-size: var(--text-xs); color: var(--text-muted);
-  text-transform: uppercase; letter-spacing: .07em; margin-bottom: var(--space-2);
-}
-.eng-metric-value {
-  font-size: var(--text-lg); font-weight: 600;
-  font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums;
-}
-.eng-metric-sub { font-size: var(--text-xs); color: var(--text-muted); margin-top: 2px; }
-
-.log-card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-xl);
-  padding: var(--space-4);
-}
-.log-header {
-  font-size: var(--text-xs); font-weight: 600; color: var(--text-muted);
-  text-transform: uppercase; letter-spacing: .08em;
-  margin-bottom: var(--space-3);
-  display: flex; align-items: center; justify-content: space-between;
-}
-#log-output {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  line-height: 1.6;
-  color: var(--text-muted);
-  height: 220px;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column-reverse;
-}
-.log-line { padding: 1px 0; border-bottom: 1px solid var(--border); }
-.log-line.anomaly { color: var(--danger); }
-.log-line.normal  { color: var(--ok); }
-
-/* ---- Responsive ------------------------------------------------------- */
-@media (max-width: 900px) {
-  .health-section { grid-template-columns: 1fr; }
-}
-@media (max-width: 700px) {
-  body {
-    grid-template-columns: 1fr;
-    grid-template-areas: "header" "main";
+  :root {
+    --bg:        #0f1117;
+    --surface:   #1a1d27;
+    --surface2:  #22263a;
+    --border:    #2e3250;
+    --text:      #e2e8f0;
+    --muted:     #7c85a2;
+    --faint:     #3d4466;
+    --green:     #22c55e;
+    --red:       #ef4444;
+    --amber:     #f59e0b;
+    --teal:      #2dd4bf;
+    --teal-dim:  #134e4a;
+    --radius:    0.5rem;
+    --mono:      'JetBrains Mono', 'Fira Code', monospace;
   }
-  nav { display: none; }
-  main { padding: var(--space-4); }
-}
+  [data-theme="light"] {
+    --bg:       #f8fafc;
+    --surface:  #ffffff;
+    --surface2: #f1f5f9;
+    --border:   #e2e8f0;
+    --text:     #0f172a;
+    --muted:    #64748b;
+    --faint:    #cbd5e1;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { font-size: 16px; }
+  body {
+    font-family: 'Inter', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* NAV */
+  nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem 1.5rem;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+  .logo {
+    display: flex; align-items: center; gap: 0.6rem;
+    font-weight: 700; font-size: 1.1rem; letter-spacing: -0.02em;
+  }
+  .logo svg { color: var(--teal); }
+  .nav-right { display: flex; align-items: center; gap: 1rem; }
+  .conn-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--red);
+    transition: background 0.3s;
+  }
+  .conn-dot.live { background: var(--green); }
+  .conn-label { font-size: 0.75rem; color: var(--muted); }
+  .theme-btn {
+    background: none; border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 0.3rem 0.6rem;
+    color: var(--muted); cursor: pointer; font-size: 0.75rem;
+    transition: color 0.2s, border-color 0.2s;
+  }
+  .theme-btn:hover { color: var(--text); border-color: var(--teal); }
+
+  /* TABS */
+  .tabs {
+    display: flex;
+    gap: 0;
+    padding: 0 1.5rem;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+  }
+  .tab-btn {
+    background: none; border: none; cursor: pointer;
+    padding: 0.75rem 1.25rem;
+    font-size: 0.875rem; font-weight: 500;
+    color: var(--muted);
+    border-bottom: 2px solid transparent;
+    transition: color 0.2s, border-color 0.2s;
+  }
+  .tab-btn.active { color: var(--teal); border-bottom-color: var(--teal); }
+  .tab-btn:hover:not(.active) { color: var(--text); }
+
+  /* MAIN */
+  main { flex: 1; padding: 1.5rem; max-width: 1100px; margin: 0 auto; width: 100%; }
+  .panel { display: none; }
+  .panel.active { display: block; }
+
+  /* OPERATOR PANEL */
+  .health-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 2rem;
+    display: flex;
+    align-items: center;
+    gap: 2rem;
+    margin-bottom: 1.5rem;
+  }
+  .health-indicator {
+    width: 96px; height: 96px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 2rem; flex-shrink: 0;
+    transition: background 0.4s, box-shadow 0.4s;
+    background: var(--teal-dim);
+    box-shadow: 0 0 0 0 transparent;
+  }
+  .health-indicator.normal  { background: #14532d; box-shadow: 0 0 24px 4px rgba(34,197,94,0.25); }
+  .health-indicator.imbalance { background: #7f1d1d; box-shadow: 0 0 24px 4px rgba(239,68,68,0.35); animation: pulse-red 1s ease-in-out infinite; }
+  .health-indicator.buffering { background: var(--surface2); }
+  @keyframes pulse-red {
+    0%,100% { box-shadow: 0 0 24px 4px rgba(239,68,68,0.25); }
+    50%      { box-shadow: 0 0 40px 8px rgba(239,68,68,0.55); }
+  }
+  .health-text h2 { font-size: 2rem; font-weight: 700; letter-spacing: -0.03em; }
+  .health-text .sublabel { font-size: 0.875rem; color: var(--muted); margin-top: 0.25rem; }
+  .health-text .prob {
+    font-size: 0.8rem; margin-top: 0.5rem;
+    font-family: var(--mono); color: var(--muted);
+  }
+
+  /* KPI row */
+  .kpi-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+  }
+  .kpi {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1rem 1.25rem;
+  }
+  .kpi .label { font-size: 0.7rem; text-transform: uppercase;
+    letter-spacing: 0.08em; color: var(--muted); margin-bottom: 0.4rem; }
+  .kpi .value {
+    font-size: 1.5rem; font-weight: 700;
+    font-family: var(--mono); color: var(--teal);
+  }
+  .kpi .unit { font-size: 0.75rem; color: var(--muted); margin-left: 0.2rem; }
+
+  /* TREND CHART */
+  .chart-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1.25rem;
+    margin-bottom: 1.5rem;
+  }
+  .chart-title {
+    font-size: 0.75rem; text-transform: uppercase;
+    letter-spacing: 0.08em; color: var(--muted); margin-bottom: 1rem;
+  }
+  canvas { display: block; width: 100% !important; }
+
+  /* ENGINEERING PANEL */
+  .eng-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+  }
+  .eng-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1rem 1.25rem;
+  }
+  .eng-card .label { font-size: 0.7rem; text-transform: uppercase;
+    letter-spacing: 0.08em; color: var(--muted); margin-bottom: 0.4rem; }
+  .eng-card .value {
+    font-size: 1.75rem; font-weight: 700;
+    font-family: var(--mono);
+  }
+  .eng-card .unit { font-size: 0.8rem; color: var(--muted); }
+
+  /* LOG */
+  .log-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1rem;
+  }
+  .log-title { font-size: 0.75rem; text-transform: uppercase;
+    letter-spacing: 0.08em; color: var(--muted); margin-bottom: 0.75rem; }
+  #log-lines {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    color: var(--muted);
+    max-height: 220px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column-reverse;
+    gap: 2px;
+  }
+  .log-line { padding: 2px 0; border-bottom: 1px solid var(--faint); }
+  .log-line.anomaly { color: var(--red); }
+  .log-line.normal  { color: var(--green); }
+
+  /* STATUS BAR */
+  .status-bar {
+    padding: 0.4rem 1.5rem;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    font-size: 0.7rem;
+    color: var(--muted);
+    display: flex; gap: 1.5rem;
+  }
+
+  /* RESPONSIVE */
+  @media (max-width: 600px) {
+    .health-card { flex-direction: column; text-align: center; }
+    .health-text h2 { font-size: 1.5rem; }
+  }
 </style>
 </head>
 <body>
 
-<!-- ================================================================ HEADER -->
-<header>
+<!-- NAV -->
+<nav>
   <div class="logo">
-    <!-- SVG logo: shield with waveform cutout -->
-    <svg width="28" height="28" viewBox="0 0 28 28" fill="none" aria-label="EdgeGuard logo">
-      <path d="M14 2L4 6.5V14c0 5.5 4 10.2 10 12 6-1.8 10-6.5 10-12V6.5L14 2Z"
-            fill="var(--accent)" opacity=".18"/>
-      <path d="M14 2L4 6.5V14c0 5.5 4 10.2 10 12 6-1.8 10-6.5 10-12V6.5L14 2Z"
-            stroke="var(--accent)" stroke-width="1.5" stroke-linejoin="round"/>
-      <!-- waveform inside shield -->
-      <polyline points="8,15 10,12 12,16 14,11 16,16 18,13 20,15"
-                stroke="var(--accent)" stroke-width="1.5"
-                stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
+         stroke="currentColor" stroke-width="2" stroke-linecap="round"
+         stroke-linejoin="round" aria-label="EdgeGuard">
+      <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+      <path d="M2 17l10 5 10-5"/>
+      <path d="M2 12l10 5 10-5"/>
     </svg>
     EdgeGuard
   </div>
-  <div class="header-right">
-    <div class="ws-status">
-      <div class="ws-dot" id="ws-dot"></div>
-      <span id="ws-label">Connecting…</span>
-    </div>
+  <div class="nav-right">
+    <div class="conn-dot" id="conn-dot"></div>
+    <span class="conn-label" id="conn-label">Connecting…</span>
+    <button class="theme-btn" onclick="toggleTheme()" aria-label="Toggle theme">☽</button>
   </div>
-</header>
-
-<!-- ================================================================ SIDEBAR -->
-<nav>
-  <span class="nav-section">Monitor</span>
-  <a href="#operator" class="active" onclick="navigate('operator',this)">
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-      <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
-      <rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>
-    </svg>
-    Operator View
-  </a>
-  <a href="#engineering" onclick="navigate('engineering',this)">
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-      <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
-    </svg>
-    Engineering
-  </a>
-
-  <span class="nav-section" style="margin-top:auto">System</span>
-  <a href="#" onclick="clearLog();return false;">
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-      <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/>
-      <path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/>
-    </svg>
-    Clear Log
-  </a>
 </nav>
 
-<!-- ================================================================ MAIN -->
+<!-- TABS -->
+<div class="tabs" role="tablist">
+  <button class="tab-btn active" role="tab" onclick="switchTab('operator', this)">Operator</button>
+  <button class="tab-btn" role="tab" onclick="switchTab('engineering', this)">Engineering</button>
+</div>
+
+<!-- MAIN -->
 <main>
 
-  <!-- ============================================ OPERATOR PAGE -->
-  <div class="page active" id="page-operator">
-    <div>
-      <div class="page-title">Machine Health</div>
-      <div class="page-subtitle">Live inference · LIS3DH @ 400 Hz · WINDOW 0.5 s</div>
+  <!-- OPERATOR PANEL -->
+  <div class="panel active" id="panel-operator">
+
+    <div class="health-card">
+      <div class="health-indicator buffering" id="health-indicator">&#x2B58;</div>
+      <div class="health-text">
+        <div class="sublabel">Motor status</div>
+        <h2 id="health-label">Buffering…</h2>
+        <div class="prob" id="health-prob">Waiting for data</div>
+      </div>
     </div>
 
-    <!-- KPIs -->
     <div class="kpi-row">
-      <div class="kpi-card">
-        <div class="kpi-label">Status</div>
-        <div class="kpi-value" id="kpi-label" style="color:var(--text-muted)">--</div>
-        <div class="kpi-sub" id="kpi-source">waiting for data</div>
+      <div class="kpi">
+        <div class="label">Anomaly prob</div>
+        <div class="value" id="kpi-anomaly">---<span class="unit">%</span></div>
       </div>
-      <div class="kpi-card">
-        <div class="kpi-label">Imbalance Prob</div>
-        <div class="kpi-value" id="kpi-prob">--%</div>
-        <div class="kpi-sub">current window</div>
+      <div class="kpi">
+        <div class="label">Board temp</div>
+        <div class="value" id="kpi-temp">---<span class="unit">°C</span></div>
       </div>
-      <div class="kpi-card">
-        <div class="kpi-label">Board Temp</div>
-        <div class="kpi-value" id="kpi-temp">-- &deg;C</div>
-        <div class="kpi-sub">LIS3DH ADC3 (trend only)</div>
+      <div class="kpi">
+        <div class="label">Inference source</div>
+        <div class="value" style="font-size:1rem;padding-top:0.4rem" id="kpi-source">---</div>
       </div>
-      <div class="kpi-card">
-        <div class="kpi-label">Buffer</div>
-        <div class="kpi-value" id="kpi-rows">--</div>
-        <div class="kpi-sub">rows in ring buffer</div>
+      <div class="kpi">
+        <div class="label">Latency</div>
+        <div class="value" id="kpi-latency">---<span class="unit">ms</span></div>
       </div>
     </div>
 
-    <!-- Health ring + anomaly trend -->
-    <div class="health-section">
-      <div class="health-ring-wrap">
-        <div class="ring-container">
-          <canvas id="ring-canvas" width="160" height="160"></canvas>
-          <div class="ring-label">
-            <div class="ring-status-text" id="ring-pct">--</div>
-            <div class="ring-status-sub">imbalance</div>
-          </div>
-        </div>
-        <div class="health-label-name" id="health-label-name">Waiting…</div>
-        <div class="health-label-sub" id="health-label-sub">No data yet</div>
-      </div>
-
-      <div class="chart-card" style="flex:1">
-        <div class="chart-header">
-          <span class="chart-title">Anomaly Score — 60s window</span>
-          <span class="chart-badge" id="trend-badge">LIVE</span>
-        </div>
-        <div class="chart-wrap">
-          <canvas id="trend-chart"></canvas>
-        </div>
-      </div>
-    </div>
-
-    <!-- Temperature trend -->
     <div class="chart-card">
-      <div class="chart-header">
-        <span class="chart-title">Board Temperature Trend</span>
-        <span class="chart-badge">aux</span>
-      </div>
-      <div class="chart-wrap">
-        <canvas id="temp-chart"></canvas>
-      </div>
+      <div class="chart-title">Anomaly probability — last 60 cycles</div>
+      <canvas id="trend-chart" height="120"></canvas>
     </div>
+
+    <div class="chart-card">
+      <div class="chart-title">Board temperature trend (°C)</div>
+      <canvas id="temp-chart" height="80"></canvas>
+    </div>
+
   </div>
 
-  <!-- ============================================ ENGINEERING PAGE -->
-  <div class="page" id="page-engineering">
-    <div>
-      <div class="page-title">Engineering Telemetry</div>
-      <div class="page-subtitle">Pipeline health · for judges and developers</div>
-    </div>
+  <!-- ENGINEERING PANEL -->
+  <div class="panel" id="panel-engineering">
 
     <div class="eng-grid">
-      <div class="eng-metric">
-        <div class="eng-metric-label">Inference Latency</div>
-        <div class="eng-metric-value" id="eng-latency">-- ms</div>
-        <div class="eng-metric-sub">snapshot + model forward pass</div>
+      <div class="eng-card">
+        <div class="label">UDP drop rate</div>
+        <div class="value" id="eng-drop">---<span class="unit">%</span></div>
       </div>
-      <div class="eng-metric">
-        <div class="eng-metric-label">UDP Drop Rate</div>
-        <div class="eng-metric-value" id="eng-drop">--%</div>
-        <div class="eng-metric-sub">cumulative since start</div>
+      <div class="eng-card">
+        <div class="label">Inference latency</div>
+        <div class="value" id="eng-latency">---<span class="unit">ms</span></div>
       </div>
-      <div class="eng-metric">
-        <div class="eng-metric-label">Inference Source</div>
-        <div class="eng-metric-value" id="eng-source">--</div>
-        <div class="eng-metric-sub">onnx → when model loaded</div>
+      <div class="eng-card">
+        <div class="label">Buffer rows</div>
+        <div class="value" id="eng-rows">---</div>
       </div>
-      <div class="eng-metric">
-        <div class="eng-metric-label">Buffer Rows</div>
-        <div class="eng-metric-value" id="eng-rows">--</div>
-        <div class="eng-metric-sub">of 1600 capacity (4s @ 400Hz)</div>
+      <div class="eng-card">
+        <div class="label">Model source</div>
+        <div class="value" style="font-size:1.1rem;padding-top:0.3rem" id="eng-source">---</div>
       </div>
-      <div class="eng-metric">
-        <div class="eng-metric-label">Imbalance Prob</div>
-        <div class="eng-metric-value" id="eng-prob">--</div>
-        <div class="eng-metric-sub">raw model output [0–1]</div>
+      <div class="eng-card">
+        <div class="label">Imbalance prob</div>
+        <div class="value" id="eng-imbalance">---<span class="unit">%</span></div>
       </div>
-      <div class="eng-metric">
-        <div class="eng-metric-label">Uptime</div>
-        <div class="eng-metric-value" id="eng-uptime">00:00</div>
-        <div class="eng-metric-sub">since first packet</div>
+      <div class="eng-card">
+        <div class="label">Normal prob</div>
+        <div class="value" id="eng-normal">---<span class="unit">%</span></div>
       </div>
     </div>
 
-    <!-- Latency chart -->
     <div class="chart-card">
-      <div class="chart-header">
-        <span class="chart-title">Inference Latency — last 120 cycles</span>
-        <span class="chart-badge" id="latency-badge">ms</span>
-      </div>
-      <div class="chart-wrap">
-        <canvas id="latency-chart"></canvas>
-      </div>
+      <div class="chart-title">Inference latency history (ms)</div>
+      <canvas id="latency-chart" height="100"></canvas>
     </div>
 
-    <!-- Raw log -->
     <div class="log-card">
-      <div class="log-header">
-        <span>Raw Telemetry Log</span>
-        <span id="log-count" style="font-family:var(--font-mono)">0 packets</span>
-      </div>
-      <div id="log-output"></div>
+      <div class="log-title">Raw telemetry log (latest first)</div>
+      <div id="log-lines"></div>
     </div>
+
   </div>
 
 </main>
 
+<!-- STATUS BAR -->
+<div class="status-bar">
+  <span id="sb-ts">--:--:--</span>
+  <span id="sb-cycles">0 cycles</span>
+  <span id="sb-uptime">uptime 0s</span>
+</div>
+
 <script>
-// ================================================================ NAVIGATION
-function navigate(page, el) {
-  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-  document.querySelectorAll('nav a').forEach(a => a.classList.remove('active'));
-  document.getElementById('page-' + page).classList.add('active');
-  el.classList.add('active');
-}
-function clearLog() {
-  document.getElementById('log-output').innerHTML = '';
-  logCount = 0;
-  document.getElementById('log-count').textContent = '0 packets';
-}
-
-// ================================================================ CHART SETUP
-const HISTORY = 120;
-
-const chartDefaults = {
-  animation: false,
-  responsive: true,
-  maintainAspectRatio: false,
-  plugins: { legend: { display: false }, tooltip: { enabled: false } },
-  scales: {
-    x: { display: false },
-    y: {
-      grid: { color: 'rgba(255,255,255,0.04)' },
-      ticks: {
-        color: '#6b6a67',
-        font: { family: "'JetBrains Mono'", size: 10 },
-        maxTicksLimit: 4,
-      },
-      border: { display: false },
-    },
-  },
+// ---- State ----------------------------------------------------------------
+const MAX_POINTS = 60;
+const state = {
+  anomalyHistory:  [],
+  latencyHistory:  [],
+  tempHistory:     [],
+  cycles:          0,
+  startTime:       Date.now(),
+  lastTemp:        null,
 };
 
-// Anomaly trend
-const trendLabels = Array(HISTORY).fill('');
-const trendData   = Array(HISTORY).fill(null);
-const trendCtx    = document.getElementById('trend-chart').getContext('2d');
-const trendChart  = new Chart(trendCtx, {
-  type: 'line',
-  data: {
-    labels: trendLabels,
-    datasets: [{
-      data: trendData,
-      borderColor: '#4f98a3',
-      backgroundColor: 'rgba(79,152,163,0.08)',
-      borderWidth: 1.5,
-      pointRadius: 0,
-      fill: true,
-      tension: 0.3,
-    }],
-  },
-  options: {
-    ...chartDefaults,
-    scales: {
-      ...chartDefaults.scales,
-      y: { ...chartDefaults.scales.y, min: 0, max: 1 },
-    },
-  },
-});
+// ---- Mini chart (no dependencies) ----------------------------------------
+function MiniChart(canvasId, color, yMin, yMax, fillColor) {
+  const canvas = document.getElementById(canvasId);
+  const ctx    = canvas.getContext('2d');
+  this.data    = [];
+  this.color   = color;
+  this.yMin    = yMin;
+  this.yMax    = yMax;
+  this.fill    = fillColor || null;
 
-// Temperature trend
-const tempLabels = Array(HISTORY).fill('');
-const tempData   = Array(HISTORY).fill(null);
-const tempCtx    = document.getElementById('temp-chart').getContext('2d');
-const tempChart  = new Chart(tempCtx, {
-  type: 'line',
-  data: {
-    labels: tempLabels,
-    datasets: [{
-      data: tempData,
-      borderColor: '#e8af34',
-      backgroundColor: 'rgba(232,175,52,0.07)',
-      borderWidth: 1.5,
-      pointRadius: 0,
-      fill: true,
-      tension: 0.3,
-    }],
-  },
-  options: chartDefaults,
-});
+  this.push = function(val) {
+    this.data.push(val);
+    if (this.data.length > MAX_POINTS) this.data.shift();
+    this.draw();
+  };
 
-// Latency chart
-const latencyLabels = Array(HISTORY).fill('');
-const latencyData   = Array(HISTORY).fill(null);
-const latencyCtx    = document.getElementById('latency-chart').getContext('2d');
-const latencyChart  = new Chart(latencyCtx, {
-  type: 'line',
-  data: {
-    labels: latencyLabels,
-    datasets: [{
-      data: latencyData,
-      borderColor: '#6daa45',
-      backgroundColor: 'rgba(109,170,69,0.07)',
-      borderWidth: 1.5,
-      pointRadius: 0,
-      fill: true,
-      tension: 0.3,
-    }],
-  },
-  options: chartDefaults,
-});
+  this.draw = function() {
+    const W = canvas.offsetWidth  || 800;
+    const H = canvas.offsetHeight || 120;
+    canvas.width  = W;
+    canvas.height = H;
+    ctx.clearRect(0, 0, W, H);
+    if (this.data.length < 2) return;
 
-// ================================================================ DONUT RING
-const ringCanvas = document.getElementById('ring-canvas');
-const ringCtx    = ringCanvas.getContext('2d');
-let ringValue    = 0;  // 0-1
+    const range = (this.yMax - this.yMin) || 1;
+    const xStep = W / (MAX_POINTS - 1);
+    const toY   = v => H - ((v - this.yMin) / range) * (H - 8) - 4;
 
-function drawRing(prob) {
-  const cx = 80, cy = 80, r = 66, lw = 12;
-  const start = -Math.PI / 2;
-  const color = prob > 0.7 ? '#dd6974'
-              : prob > 0.4 ? '#e8af34'
-              : '#6daa45';
-  ringCtx.clearRect(0, 0, 160, 160);
-  // track
-  ringCtx.beginPath();
-  ringCtx.arc(cx, cy, r, 0, Math.PI * 2);
-  ringCtx.strokeStyle = 'rgba(255,255,255,0.05)';
-  ringCtx.lineWidth = lw;
-  ringCtx.stroke();
-  // fill
-  ringCtx.beginPath();
-  ringCtx.arc(cx, cy, r, start, start + Math.PI * 2 * prob);
-  ringCtx.strokeStyle = color;
-  ringCtx.lineWidth = lw;
-  ringCtx.lineCap = 'round';
-  ringCtx.stroke();
-  // center color update
-  document.getElementById('ring-pct').style.color = color;
+    // Fill
+    if (this.fill) {
+      ctx.beginPath();
+      ctx.moveTo(0, H);
+      this.data.forEach((v, i) => {
+        const x = (MAX_POINTS - this.data.length + i) * xStep;
+        ctx.lineTo(x, toY(v));
+      });
+      ctx.lineTo((MAX_POINTS - 1) * xStep, H);
+      ctx.closePath();
+      ctx.fillStyle = this.fill;
+      ctx.fill();
+    }
+
+    // Line
+    ctx.beginPath();
+    ctx.strokeStyle = this.color;
+    ctx.lineWidth   = 2;
+    ctx.lineJoin    = 'round';
+    this.data.forEach((v, i) => {
+      const x = (MAX_POINTS - this.data.length + i) * xStep;
+      i === 0 ? ctx.moveTo(x, toY(v)) : ctx.lineTo(x, toY(v));
+    });
+    ctx.stroke();
+
+    // Threshold line at 0.5 for anomaly chart
+    if (this.yMax === 1.0) {
+      ctx.beginPath();
+      ctx.strokeStyle = 'rgba(239,68,68,0.3)';
+      ctx.lineWidth   = 1;
+      ctx.setLineDash([4, 4]);
+      const ty = toY(0.5);
+      ctx.moveTo(0, ty); ctx.lineTo(W, ty);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  };
 }
-drawRing(0);
 
-// ================================================================ WEBSOCKET
-const WS_URL = `ws://${location.hostname}:8000/ws`;
-let   socket, reconnectTimer;
-let   logCount = 0;
-let   startTs  = null;
-let   lastTemp = null; // last known temp from most recent packet
+const trendChart   = new MiniChart('trend-chart',   '#2dd4bf', 0, 1,   'rgba(45,212,191,0.08)');
+const tempChart    = new MiniChart('temp-chart',    '#f59e0b', 15, 50,  'rgba(245,158,11,0.07)');
+const latencyChart = new MiniChart('latency-chart', '#a78bfa', 0, 100, 'rgba(167,139,250,0.08)');
+
+// ---- WebSocket ------------------------------------------------------------
+let ws;
+let reconnectTimer;
 
 function connect() {
-  const dot   = document.getElementById('ws-dot');
-  const label = document.getElementById('ws-label');
-  dot.className = 'ws-dot';
-  label.textContent = 'Connecting…';
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(`${proto}://${location.host}/ws`);
 
-  socket = new WebSocket(WS_URL);
-
-  socket.onopen = () => {
-    dot.className = 'ws-dot connected';
-    label.textContent = 'Live';
-  };
-
-  socket.onmessage = (ev) => {
-    let d;
-    try { d = JSON.parse(ev.data); } catch { return; }
-    if (!d.label) return;
-    onTelemetry(d);
-  };
-
-  socket.onclose = () => {
-    dot.className = 'ws-dot error';
-    label.textContent = 'Reconnecting…';
+  ws.onopen = () => {
+    document.getElementById('conn-dot').classList.add('live');
+    document.getElementById('conn-label').textContent = 'Live';
     clearTimeout(reconnectTimer);
+  };
+
+  ws.onclose = () => {
+    document.getElementById('conn-dot').classList.remove('live');
+    document.getElementById('conn-label').textContent = 'Reconnecting…';
     reconnectTimer = setTimeout(connect, 2000);
   };
 
-  socket.onerror = () => socket.close();
+  ws.onerror = () => ws.close();
+
+  ws.onmessage = (evt) => {
+    let d;
+    try { d = JSON.parse(evt.data); } catch { return; }
+    onTelemetry(d);
+  };
 }
 
-// ================================================================ DATA UPDATE
+// ---- Update UI ------------------------------------------------------------
 function onTelemetry(d) {
-  if (!startTs) startTs = d.ts;
+  state.cycles++;
 
-  const prob   = d.imbalance_prob ?? 0;
-  const isAnom = d.label === 'imbalance';
-  const color  = prob > 0.7 ? 'var(--danger)'
-               : prob > 0.4 ? 'var(--warn)'
-               : 'var(--ok)';
+  const label      = d.label      || 'buffering';
+  const anomalyP   = d.imbalance_prob ?? 0;
+  const normalP    = d.normal_prob    ?? 0;
+  const latency    = d.latency_ms     ?? 0;
+  const dropRate   = d.drop_rate_pct  ?? 0;
+  const nRows      = d.n_rows         ?? 0;
+  const source     = d.source         || '---';
 
-  // ---- Operator KPIs
-  const kpiLabel = document.getElementById('kpi-label');
-  kpiLabel.textContent = d.label.toUpperCase();
-  kpiLabel.style.color = color;
+  // Temperature: extract from last snapshot if available
+  // board_temp is in the raw packet; inference.py doesn't pass it through
+  // directly, but we can track it if main.py is extended. For now show
+  // the last known value or ---.
+  const tempVal = (state.lastTemp !== null) ? state.lastTemp.toFixed(1) : '---';
 
-  document.getElementById('kpi-source').textContent = `source: ${d.source}`;
-  document.getElementById('kpi-prob').textContent   = (prob * 100).toFixed(1) + '%';
-  document.getElementById('kpi-rows').textContent   = d.n_rows;
+  // Health indicator
+  const indicator = document.getElementById('health-indicator');
+  const hlabel    = document.getElementById('health-label');
+  const hprob     = document.getElementById('health-prob');
+  indicator.className = 'health-indicator ' + label;
+  if (label === 'normal') {
+    indicator.innerHTML = '&#x2714;';
+    hlabel.textContent  = 'Normal';
+    hlabel.style.color  = 'var(--green)';
+  } else if (label === 'imbalance') {
+    indicator.innerHTML = '&#x26A0;';
+    hlabel.textContent  = 'Imbalance Detected';
+    hlabel.style.color  = 'var(--red)';
+  } else {
+    indicator.innerHTML = '&#x2B58;';
+    hlabel.textContent  = 'Buffering…';
+    hlabel.style.color  = 'var(--muted)';
+  }
+  hprob.textContent = `normal ${(normalP*100).toFixed(1)}%  │  imbalance ${(anomalyP*100).toFixed(1)}%`;
 
-  // board_temp not in the telemetry JSON directly; carried in buffer rows
-  // We show the last known temp from the previous raw log if available
-  // (future: add avg_temp field to inference result dict)
+  // KPIs
+  setText('kpi-anomaly', (anomalyP * 100).toFixed(1));
+  setText('kpi-temp',    tempVal);
+  setText('kpi-source',  source);
+  setText('kpi-latency', latency.toFixed(1));
 
-  // ---- Ring
-  ringValue = prob;
-  drawRing(prob);
-  document.getElementById('ring-pct').textContent        = (prob * 100).toFixed(0) + '%';
-  document.getElementById('health-label-name').textContent = d.label.toUpperCase();
-  document.getElementById('health-label-sub').textContent  =
-    isAnom ? 'Anomaly detected — check motor' : 'Running normally';
+  // Engineering
+  setText('eng-drop',      dropRate.toFixed(2));
+  setText('eng-latency',   latency.toFixed(1));
+  setText('eng-rows',      nRows);
+  setText('eng-source',    source);
+  setText('eng-imbalance', (anomalyP * 100).toFixed(1));
+  setText('eng-normal',    (normalP  * 100).toFixed(1));
 
-  // ---- Trend charts (push, shift)
-  trendData.shift();   trendData.push(prob);
-  trendLabels.shift(); trendLabels.push('');
-  trendChart.update('none');
+  // Charts
+  trendChart.push(anomalyP);
+  latencyChart.push(latency);
 
-  document.getElementById('trend-badge').textContent = d.label === 'buffering' ? 'BUFFERING' : 'LIVE';
+  // Status bar
+  const ts = new Date(d.ts * 1000);
+  setText('sb-ts',     ts.toLocaleTimeString());
+  setText('sb-cycles', `${state.cycles} cycles`);
+  setText('sb-uptime', `uptime ${Math.round((Date.now()-state.startTime)/1000)}s`);
 
-  // ---- Engineering metrics
-  document.getElementById('eng-latency').textContent = d.latency_ms.toFixed(1) + ' ms';
-  document.getElementById('eng-drop').textContent    = d.drop_rate_pct.toFixed(2) + '%';
-  document.getElementById('eng-source').textContent  = d.source;
-  document.getElementById('eng-rows').textContent    = d.n_rows;
-  document.getElementById('eng-prob').textContent    = prob.toFixed(4);
-
-  // Uptime
-  const elapsed = Math.floor(d.ts - startTs);
-  const mm = String(Math.floor(elapsed / 60)).padStart(2, '0');
-  const ss = String(elapsed % 60).padStart(2, '0');
-  document.getElementById('eng-uptime').textContent = `${mm}:${ss}`;
-
-  // Latency chart
-  latencyData.shift();   latencyData.push(d.latency_ms);
-  latencyLabels.shift(); latencyLabels.push('');
-  latencyChart.update('none');
-  document.getElementById('latency-badge').textContent = d.latency_ms.toFixed(1) + ' ms';
-
-  // ---- Log
-  logCount++;
-  document.getElementById('log-count').textContent = logCount + ' packets';
-  const line = document.createElement('div');
-  line.className = 'log-line ' + (isAnom ? 'anomaly' : d.label === 'normal' ? 'normal' : '');
-  const t = new Date(d.ts * 1000).toISOString().substr(11, 12);
-  line.textContent = `${t}  ${d.label.padEnd(9)}  prob=${prob.toFixed(3)}  lat=${d.latency_ms.toFixed(1)}ms  drop=${d.drop_rate_pct.toFixed(2)}%`;
-  const log = document.getElementById('log-output');
-  log.prepend(line);
-  if (log.children.length > 200) log.lastElementChild.remove();
+  // Log
+  addLog(d, label);
 }
 
-// ================================================================ UPTIME TICK
-setInterval(() => {
-  if (!startTs) return;
-  const elapsed = Math.floor(Date.now() / 1000 - startTs);
-  const mm = String(Math.floor(elapsed / 60)).padStart(2, '0');
-  const ss = String(elapsed % 60).padStart(2, '0');
-  document.getElementById('eng-uptime').textContent = `${mm}:${ss}`;
-}, 1000);
+function setText(id, val) {
+  const el = document.getElementById(id);
+  if (el) {
+    // Preserve child <span class="unit"> elements
+    const unit = el.querySelector('.unit');
+    if (unit) {
+      el.childNodes[0].textContent = val;
+    } else {
+      el.textContent = val;
+    }
+  }
+}
 
-// ================================================================ BOOT
-connect();
+const LOG_MAX = 80;
+function addLog(d, label) {
+  const el   = document.getElementById('log-lines');
+  const line = document.createElement('div');
+  line.className = 'log-line ' + (label === 'imbalance' ? 'anomaly' : label);
+  const ts = new Date(d.ts * 1000).toLocaleTimeString();
+  line.textContent =
+    `${ts}  ${label.padEnd(10)}  prob=${(d.imbalance_prob*100).toFixed(1)}%` +
+    `  lat=${d.latency_ms.toFixed(1)}ms  drop=${d.drop_rate_pct.toFixed(2)}%  src=${d.source}`;
+  el.prepend(line);
+  // trim log
+  while (el.children.length > LOG_MAX) el.lastChild.remove();
+}
+
+// ---- Tabs -----------------------------------------------------------------
+function switchTab(name, btn) {
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('panel-' + name).classList.add('active');
+  btn.classList.add('active');
+}
+
+// ---- Theme ----------------------------------------------------------------
+function toggleTheme() {
+  const html = document.documentElement;
+  html.setAttribute('data-theme',
+    html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+}
+
+// ---- Init -----------------------------------------------------------------
+window.addEventListener('load', () => {
+  connect();
+  // Redraw charts on resize
+  window.addEventListener('resize', () => {
+    trendChart.draw();
+    tempChart.draw();
+    latencyChart.draw();
+  });
+});
 </script>
 </body>
 </html>
