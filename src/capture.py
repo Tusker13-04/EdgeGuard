@@ -74,6 +74,10 @@ def record_session(
     `buffer`, slice into windows, and save each as an Edge Impulse CSV.
 
     Returns list of saved file paths.
+
+    Raises ValueError if fewer than WINDOW_SIZE rows were captured (nothing
+    to save).  Prints a warning if fewer rows than requested were captured
+    but at least one full window is available.
     """
     n_rows_needed = duration_seconds * SAMPLE_RATE_HZ
 
@@ -86,7 +90,6 @@ def record_session(
     print("[Capture] RECORDING", flush=True)
 
     # Poll until we have enough fresh rows in the buffer
-    # Sleep 50ms between polls to avoid busy-waiting
     deadline = time.perf_counter() + duration_seconds + 2.0  # +2s grace
     while True:
         if buffer.n_rows >= n_rows_needed:
@@ -96,8 +99,26 @@ def record_session(
             break
         time.sleep(0.05)
 
-    snap    = buffer.get_snapshot()
-    data    = snap[-n_rows_needed:].astype(np.float32)  # take most recent rows
+    snap = buffer.get_snapshot()
+    data = snap[-n_rows_needed:].astype(np.float32)  # take most recent rows
+
+    # ── Truncation guard (fix #10) ──────────────────────────────────────────
+    # If fewer rows were captured than requested, warn but continue as long as
+    # at least one full window (WINDOW_SIZE rows) is available.
+    if len(data) < n_rows_needed:
+        print(
+            f"[Capture] WARNING: captured {len(data)} rows "
+            f"(expected {n_rows_needed}). "
+            f"{'Proceeding with partial data.' if len(data) >= WINDOW_SIZE else 'Not enough data for even one window — aborting.'}"
+        )
+    if len(data) < WINDOW_SIZE:
+        raise ValueError(
+            f"[Capture] Captured only {len(data)} rows — minimum is "
+            f"{WINDOW_SIZE} (one window). Check that the ESP8266 is streaming "
+            f"and the UDP port is correct."
+        )
+    # ── End truncation guard ────────────────────────────────────────────────
+
     windows = slice_windows(data)
     paths   = [save_window_as_csv(w, label=label, output_dir=output_dir) for w in windows]
 

@@ -55,15 +55,15 @@ def _rule_based_score(snapshot: np.ndarray) -> dict:
     Fallback when no ONNX model is available.
     Returns anomaly score based on XYZ vibration RMS.
     """
-    xyz  = snapshot[:, :3]          # columns 0,1,2 = accX, accY, accZ
-    rms  = float(np.sqrt(np.mean(xyz ** 2)))
+    xyz   = snapshot[:, :3]          # columns 0,1,2 = accX, accY, accZ
+    rms   = float(np.sqrt(np.mean(xyz ** 2)))
     score = min(1.0, rms / RMS_ANOMALY_THRESHOLD)
     label = CLASS_NAMES[1] if score > 0.5 else CLASS_NAMES[0]
     return {
-        "label":        label,
+        "label":          label,
         "imbalance_prob": round(score, 4),
         "normal_prob":    round(1.0 - score, 4),
-        "source":       "rule_based",
+        "source":         "rule_based",
     }
 
 
@@ -90,6 +90,10 @@ def run_inference_cycle(buffer: FastCircularBuffer, sess=None) -> dict:
     """
     Single inference cycle. Call this in a loop from the inference thread.
     Returns a result dict suitable for the dashboard.
+
+    n_rows in the returned dict reflects the number of rows actually used
+    for inference (capped at WINDOW_SIZE once the buffer is full), not the
+    raw buffer capacity.  This gives the dashboard a meaningful number.
     """
     t0       = time.perf_counter()
     snapshot = buffer.get_snapshot()
@@ -102,6 +106,7 @@ def run_inference_cycle(buffer: FastCircularBuffer, sess=None) -> dict:
             "normal_prob":     0.0,
             "source":          "none",
             "latency_ms":      0.0,
+            # Report actual rows received so far, not the buffer capacity
             "n_rows":          len(snapshot),
         }
 
@@ -113,7 +118,9 @@ def run_inference_cycle(buffer: FastCircularBuffer, sess=None) -> dict:
     latency_inference_ms = (time.perf_counter() - t1) * 1000
 
     result["latency_ms"] = round(latency_snapshot_ms + latency_inference_ms, 2)
-    result["n_rows"]     = len(snapshot)
+    # Always report WINDOW_SIZE once the buffer is full — this is the slice
+    # that was actually fed into the model, not the total buffer capacity.
+    result["n_rows"]     = WINDOW_SIZE
     return result
 
 

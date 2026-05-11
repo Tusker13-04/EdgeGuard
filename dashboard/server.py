@@ -6,12 +6,18 @@
 # WebSocket clients.
 #
 # Usage:
-#   uvicorn dashboard.server:app --host 0.0.0.0 --port 8080 --reload
+#   uvicorn dashboard.server:app --host 0.0.0.0 --port 8080
+#
+# Demo mode (no hardware needed):
+#   uvicorn dashboard.server:app --host 0.0.0.0 --port 8080
+#   ...then set EDGEGUARD_DEMO env var or pass --demo flag to main.py:
+#   EDGEGUARD_DEMO=data/demo.jsonl uvicorn dashboard.server:app ...
 #
 # Then open http://<pi-ip>:8080 in a browser.
 
 import asyncio
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -23,6 +29,9 @@ app = FastAPI(title="EdgeGuard Dashboard")
 
 # Absolute path to main.py (one level up from this file)
 MAIN_PY = str(Path(__file__).resolve().parent.parent / "main.py")
+
+# If EDGEGUARD_DEMO env var is set, forward --demo flag to main.py subprocess
+_DEMO_FILE = os.environ.get("EDGEGUARD_DEMO", "")
 
 # Connected WebSocket clients
 _clients: set[WebSocket] = set()
@@ -42,11 +51,18 @@ async def _pipeline_reader():
     """
     Spawn main.py, read its stdout line-by-line, broadcast each JSON
     telemetry line to all WebSocket clients.
+
+    stderr is forwarded to this process's stderr so crashes in main.py
+    are visible in the uvicorn terminal instead of being silently dropped.
     """
+    cmd = [sys.executable, MAIN_PY]
+    if _DEMO_FILE:
+        cmd += ["--demo", _DEMO_FILE]
+
     proc = await asyncio.create_subprocess_exec(
-        sys.executable, MAIN_PY,
+        *cmd,
         stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.DEVNULL,
+        stderr=sys.stderr,          # forward — not devnull
     )
     assert proc.stdout is not None
     while True:

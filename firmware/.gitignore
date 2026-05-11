@@ -1,0 +1,7 @@
+# PlatformIO build artefacts
+.pio/
+.pioenvs/
+.piolibdeps/
+
+# WiFi credentials — never commit
+src/secrets.h

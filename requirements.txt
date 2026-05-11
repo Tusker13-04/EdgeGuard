@@ -4,3 +4,4 @@ onnxruntime>=1.17
 fastapi>=0.110
 uvicorn[standard]>=0.29
 websockets>=12.0
+httpx>=0.27          # used by tests and health-check scripts
