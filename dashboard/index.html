@@ -117,7 +117,7 @@
     background: var(--teal-dim);
     box-shadow: 0 0 0 0 transparent;
   }
-  .health-indicator.normal  { background: #14532d; box-shadow: 0 0 24px 4px rgba(34,197,94,0.25); }
+  .health-indicator.normal    { background: #14532d; box-shadow: 0 0 24px 4px rgba(34,197,94,0.25); }
   .health-indicator.imbalance { background: #7f1d1d; box-shadow: 0 0 24px 4px rgba(239,68,68,0.35); animation: pulse-red 1s ease-in-out infinite; }
   .health-indicator.buffering { background: var(--surface2); }
   @keyframes pulse-red {
@@ -275,7 +275,7 @@
         <div class="value" id="kpi-anomaly">---<span class="unit">%</span></div>
       </div>
       <div class="kpi">
-        <div class="label">Board temp</div>
+        <div class="label">Motor temp (DS18B20)</div>
         <div class="value" id="kpi-temp">---<span class="unit">°C</span></div>
       </div>
       <div class="kpi">
@@ -294,7 +294,7 @@
     </div>
 
     <div class="chart-card">
-      <div class="chart-title">Board temperature trend (°C)</div>
+      <div class="chart-title">Motor temperature trend — DS18B20 (°C)</div>
       <canvas id="temp-chart" height="80"></canvas>
     </div>
 
@@ -360,7 +360,6 @@ const state = {
   tempHistory:     [],
   cycles:          0,
   startTime:       Date.now(),
-  lastTemp:        null,
 };
 
 // ---- Mini chart (no dependencies) ----------------------------------------
@@ -475,11 +474,11 @@ function onTelemetry(d) {
   const nRows      = d.n_rows         ?? 0;
   const source     = d.source         || '---';
 
-  // Temperature: extract from last snapshot if available
-  // board_temp is in the raw packet; inference.py doesn't pass it through
-  // directly, but we can track it if main.py is extended. For now show
-  // the last known value or ---.
-  const tempVal = (state.lastTemp !== null) ? state.lastTemp.toFixed(1) : '---';
+  // board_temp_c is emitted by main.py from PacketParser.last_temp_c
+  // It is null until the first UDP packet arrives, then a float in °C.
+  const tempVal = (d.board_temp_c !== null && d.board_temp_c !== undefined)
+    ? d.board_temp_c.toFixed(1)
+    : '---';
 
   // Health indicator
   const indicator = document.getElementById('health-indicator');
@@ -518,6 +517,9 @@ function onTelemetry(d) {
   // Charts
   trendChart.push(anomalyP);
   latencyChart.push(latency);
+  if (d.board_temp_c !== null && d.board_temp_c !== undefined) {
+    tempChart.push(d.board_temp_c);
+  }
 
   // Status bar
   const ts = new Date(d.ts * 1000);
@@ -547,12 +549,14 @@ function addLog(d, label) {
   const el   = document.getElementById('log-lines');
   const line = document.createElement('div');
   line.className = 'log-line ' + (label === 'imbalance' ? 'anomaly' : label);
-  const ts = new Date(d.ts * 1000).toLocaleTimeString();
+  const ts   = new Date(d.ts * 1000).toLocaleTimeString();
+  const temp = (d.board_temp_c !== null && d.board_temp_c !== undefined)
+    ? d.board_temp_c.toFixed(1) + '°C'
+    : '---';
   line.textContent =
     `${ts}  ${label.padEnd(10)}  prob=${(d.imbalance_prob*100).toFixed(1)}%` +
-    `  lat=${d.latency_ms.toFixed(1)}ms  drop=${d.drop_rate_pct.toFixed(2)}%  src=${d.source}`;
+    `  temp=${temp}  lat=${d.latency_ms.toFixed(1)}ms  drop=${d.drop_rate_pct.toFixed(2)}%  src=${d.source}`;
   el.prepend(line);
-  // trim log
   while (el.children.length > LOG_MAX) el.lastChild.remove();
 }
 
@@ -574,7 +578,6 @@ function toggleTheme() {
 // ---- Init -----------------------------------------------------------------
 window.addEventListener('load', () => {
   connect();
-  // Redraw charts on resize
   window.addEventListener('resize', () => {
     trendChart.draw();
     tempChart.draw();

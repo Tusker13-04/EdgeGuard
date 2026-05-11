@@ -11,7 +11,8 @@
 #
 # Telemetry output (one JSON line per inference cycle, to stdout):
 #   {"ts": ..., "label": "normal", "imbalance_prob": 0.02,
-#    "latency_ms": 4.1, "drop_rate_pct": 0.0, "n_rows": 1600}
+#    "board_temp_c": 27.4, "latency_ms": 4.1,
+#    "drop_rate_pct": 0.0, "n_rows": 1600}
 
 import socket
 import threading
@@ -94,6 +95,10 @@ def run(port: int, interval: float):
             "latency_ms":     result["latency_ms"],
             "drop_rate_pct":  round(parser.drop_rate_pct, 2),
             "n_rows":         result["n_rows"],
+            # board_temp_c: last temperature value seen from the DS18B20 sensor
+            # (carried in UDP packet field board_temp, index 3 of features).
+            # None until the first packet arrives; dashboard shows --- until then.
+            "board_temp_c":   parser.last_temp_c,
         }
         print(json.dumps(telemetry), flush=True)
 

@@ -7,7 +7,7 @@
 #   float32 accel_x        - m/s^2
 #   float32 accel_y        - m/s^2
 #   float32 accel_z        - m/s^2
-#   float32 board_temp     - deg C (LIS3DH embedded ADC3, 1 deg resolution)
+#   float32 board_temp     - deg C (DS18B20 waterproof probe, ±0.5 °C)
 #
 # Total: 24 bytes
 
@@ -26,11 +26,13 @@ N_FEATURES   = len(FEATURE_COLS)  # 4
 
 
 class PacketParser:
-    """Stateful parser that tracks sequence gaps and inter-arrival jitter."""
+    """Stateful parser that tracks sequence gaps, inter-arrival jitter,
+    and the most recently received board temperature."""
 
     def __init__(self):
         self._last_seq      = None
         self._last_arrival  = None
+        self._last_temp_c   = None   # most recent DS18B20 reading from firmware
         self.total_received = 0
         self.total_dropped  = 0
 
@@ -45,6 +47,9 @@ class PacketParser:
 
         now = time.perf_counter()
         ts_us, seq_id, ax, ay, az, temp = struct.unpack(PACKET_FORMAT, packet_bytes)
+
+        # Track latest temperature for telemetry broadcast
+        self._last_temp_c = round(float(temp), 2)
 
         # Jitter
         jitter_ms = 0.0
@@ -63,6 +68,11 @@ class PacketParser:
 
         features = np.array([ax, ay, az, temp], dtype=np.float32)
         return ts_us, seq_id, features, jitter_ms, dropped
+
+    @property
+    def last_temp_c(self):
+        """Most recent board temperature in °C, or None before first packet."""
+        return self._last_temp_c
 
     @property
     def drop_rate_pct(self) -> float:

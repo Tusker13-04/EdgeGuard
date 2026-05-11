@@ -1,16 +1,18 @@
 // firmware/src/main.cpp
 // EdgeGuard — ESP8266 NodeMCU v2
-// Sensor : Adafruit LIS3DH (SPI, CS=D8/GPIO15)
-// INT1   : D3 / GPIO0  (FIFO watermark, active-high)
-// Streams UDP packets to Raspberry Pi at ~400 Hz effective throughput
+// Accel : Adafruit LIS3DH STEMMA QT  (I2C, address 0x18, DRDY on D3/GPIO0)
+// Temp  : DS18B20 waterproof probe    (1-Wire, data pin D4/GPIO2)
+// Streams UDP packets to Raspberry Pi at ~400 Hz effective throughput.
 // Payload struct must stay in sync with src/udp_receiver.py on the Pi.
 
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
 #include <WiFiUdp.h>
-#include <SPI.h>
+#include <Wire.h>
 #include <Adafruit_LIS3DH.h>
 #include <Adafruit_Sensor.h>
+#include <OneWire.h>
+#include <DallasTemperature.h>
 
 // ── WiFi / network config ──────────────────────────────────────────────────
 #define WIFI_SSID   "YOUR_SSID"
@@ -18,28 +20,33 @@
 #define HOST_IP     "192.168.1.100"   // Raspberry Pi IP
 #define UDP_PORT    4444
 
-// ── LIS3DH SPI pins (NodeMCU v2) ──────────────────────────────────────────
-// MOSI = D7 / GPIO13
-// MISO = D6 / GPIO12
-// SCK  = D5 / GPIO14
-// CS   = D8 / GPIO15
-#define LIS3DH_CS_PIN  15
+// ── LIS3DH I2C config ─────────────────────────────────────────────────────
+// Connected via STEMMA QT cable: SDA=D2/GPIO4, SCL=D1/GPIO5
+// SDO pin floating → I2C address 0x18 (default)
+// CS pin not connected (STEMMA QT does not wire CS) → I2C mode enforced
+#define LIS3DH_ADDR   0x18
 
-// ── FIFO watermark interrupt ───────────────────────────────────────────────
-// INT1 = D3 / GPIO0  (INPUT, active-high from LIS3DH)
-#define LIS3DH_INT1_PIN 0
+// ── LIS3DH DRDY interrupt ─────────────────────────────────────────────────
+// INT1 = D3 / GPIO0 (INPUT, active-high from LIS3DH CTRL_REG3)
+#define LIS3DH_INT1_PIN  0
+
+// ── DS18B20 1-Wire pin ────────────────────────────────────────────────────
+// Data wire = D4 / GPIO2 (3.3V with 4.7kΩ pull-up to 3.3V)
+#define ONE_WIRE_PIN  2
 
 // ── Sampling config ───────────────────────────────────────────────────────
 // LIS3DH ODR = 400 Hz  → one sample every 2.5 ms
 // FIFO watermark = 25 samples → ISR fires every ~62.5 ms
-// Effective UDP packet rate ≈ 16 packets/sec carrying 25 samples each
-#define FIFO_WATERMARK   25
+// DS18B20 conversion time at 12-bit = 750 ms → read once per FIFO burst
+// (burst fires every ~62.5 ms; DS18B20 is requested async and read on
+//  the next available burst after conversion completes)
+#define FIFO_WATERMARK  25
 
 // ── Payload (must match Pi's struct.unpack format '<LLffff') ──────────────
-// timestamp_us : microseconds since boot (uint32)
-// sequence_id  : monotonically increasing packet counter (uint32)
-// accel_x/y/z  : m/s² (float32)
-// board_temp   : °C   (float32, from LIS3DH ADC3, 1°C resolution)
+// timestamp_us : microseconds since boot      (uint32)
+// sequence_id  : monotonically increasing     (uint32)
+// accel_x/y/z  : m/s²                         (float32)
+// board_temp   : °C from DS18B20              (float32)
 struct __attribute__((packed)) SensorPayload {
     uint32_t timestamp_us;
     uint32_t sequence_id;
@@ -48,31 +55,22 @@ struct __attribute__((packed)) SensorPayload {
     float    accel_z;
     float    board_temp;
 };
-// sizeof(SensorPayload) == 24 bytes
 static_assert(sizeof(SensorPayload) == 24, "Payload size mismatch — sync with Pi");
 
 // ── Globals ────────────────────────────────────────────────────────────────
-Adafruit_LIS3DH lis = Adafruit_LIS3DH(LIS3DH_CS_PIN);
-WiFiUDP         udp;
-SensorPayload   payload;
-uint32_t        seq_counter = 0;
-volatile bool   fifo_ready  = false;
+Adafruit_LIS3DH    lis;
+OneWire            oneWire(ONE_WIRE_PIN);
+DallasTemperature  tempSensor(&oneWire);
+WiFiUDP            udp;
+SensorPayload      payload;
+uint32_t           seq_counter      = 0;
+volatile bool      fifo_ready       = false;
+float              last_temp_c      = 25.0f;  // safe default until first read
+bool               temp_req_pending = false;
+uint32_t           temp_req_ms      = 0;
 
-// ── Temperature conversion ────────────────────────────────────────────────
-// LIS3DH embedded temp: 16-bit signed output from OUT_ADC3_L/H
-// Sensitivity = 1 LSB/°C (left-justified in 10-bit field → divide by 64 for
-// 10-bit value, then offset from 25°C)
-// Ref: LIS3DH datasheet §3.7, Table 5
-float lis3dh_read_temp_celsius(Adafruit_LIS3DH &sensor) {
-    int16_t raw = 0;
-    // Adafruit driver exposes readADC(3) which returns the raw ADC3 value
-    raw = sensor.readADC(3);
-    // raw is a 10-bit signed value scaled to 16-bit (left-aligned)
-    // Divide by 64 to recover 10-bit, then by 4 to get °C offset (4 LSB/°C
-    // at 10-bit), then add 25°C reference.
-    // Simplified from datasheet: each LSB of the 10-bit value = 1°C
-    return 25.0f + (float)(raw >> 6) / 4.0f;
-}
+// DS18B20 async conversion time at 12-bit resolution = 750 ms
+#define DS18B20_CONV_MS  750
 
 // ── FIFO watermark ISR ────────────────────────────────────────────────────
 ICACHE_RAM_ATTR void onFifoWatermark() {
@@ -97,22 +95,22 @@ void setup() {
     Serial.println(WiFi.localIP());
     udp.begin(UDP_PORT);
 
-    // LIS3DH SPI init
-    if (!lis.begin_SPI(LIS3DH_CS_PIN)) {
-        Serial.println("[EdgeGuard] FATAL: LIS3DH not found. Check wiring.");
+    // I2C for LIS3DH (STEMMA QT: SDA=D2/GPIO4, SCL=D1/GPIO5)
+    Wire.begin();
+    Wire.setClock(400000);  // 400 kHz fast-mode
+
+    // LIS3DH I2C init
+    if (!lis.begin(LIS3DH_ADDR)) {
+        Serial.println("[EdgeGuard] FATAL: LIS3DH not found. Check STEMMA QT cable and address.");
         while (true) { delay(100); }
     }
-    Serial.println("[EdgeGuard] LIS3DH OK");
+    Serial.println("[EdgeGuard] LIS3DH OK (I2C 0x18)");
 
-    // ODR = 400 Hz, range = ±8g (good for industrial vibration)
+    // ODR = 400 Hz, range = ±8 g
     lis.setDataRate(LIS3DH_DATARATE_400_HZ);
     lis.setRange(LIS3DH_RANGE_8_G);
 
-    // Enable ADC and embedded temperature sensor
-    // Write 0xC0 to TEMP_CFG_REG (0x1F): ADC_EN=1, TEMP_EN=1
-    lis.writeRegister8(LIS3DH_REG_TEMPCFG, 0xC0);
-
-    // Enable FIFO stream mode with watermark = FIFO_WATERMARK
+    // Enable FIFO stream mode, watermark = FIFO_WATERMARK
     // CTRL_REG5 (0x24): FIFO_EN = 1
     uint8_t ctrl5 = lis.readRegister8(LIS3DH_REG_CTRL5);
     lis.writeRegister8(LIS3DH_REG_CTRL5, ctrl5 | 0x40);
@@ -123,24 +121,46 @@ void setup() {
     uint8_t ctrl3 = lis.readRegister8(LIS3DH_REG_CTRL3);
     lis.writeRegister8(LIS3DH_REG_CTRL3, ctrl3 | 0x04);
 
-    // Attach ISR to INT1
+    // INT1 interrupt
     pinMode(LIS3DH_INT1_PIN, INPUT);
     attachInterrupt(digitalPinToInterrupt(LIS3DH_INT1_PIN),
                     onFifoWatermark, RISING);
 
+    // DS18B20 1-Wire init
+    tempSensor.begin();
+    tempSensor.setResolution(12);         // 12-bit: 0.0625 °C resolution
+    tempSensor.setWaitForConversion(false); // async: never block in loop()
+    // Kick off first conversion immediately
+    tempSensor.requestTemperatures();
+    temp_req_pending = true;
+    temp_req_ms      = millis();
+
+    Serial.println("[EdgeGuard] DS18B20 OK (1-Wire GPIO2, 12-bit async)");
     Serial.println("[EdgeGuard] LIS3DH FIFO armed @ 400Hz / watermark=25");
     Serial.println("[EdgeGuard] Ready. Streaming UDP to " HOST_IP);
 }
 
 // ── loop ──────────────────────────────────────────────────────────────────
 void loop() {
+    // ── DS18B20 async read (non-blocking) ───────────────────────────────
+    // Check if a pending conversion has completed (750 ms at 12-bit).
+    // If so, collect the result and immediately request the next conversion.
+    if (temp_req_pending && (millis() - temp_req_ms >= DS18B20_CONV_MS)) {
+        float t = tempSensor.getTempCByIndex(0);
+        // DEVICE_DISCONNECTED_C = -127; ignore obviously invalid readings
+        if (t > -100.0f) {
+            last_temp_c = t;
+        }
+        // Request next conversion immediately (result ready in 750 ms)
+        tempSensor.requestTemperatures();
+        temp_req_ms = millis();
+        // temp_req_pending stays true — we always have a conversion running
+    }
+
+    // ── LIS3DH FIFO burst ───────────────────────────────────────────────
     if (!fifo_ready) return;
     fifo_ready = false;
 
-    // Read temperature once per FIFO burst (shared across all 25 samples)
-    float board_temp = lis3dh_read_temp_celsius(lis);
-
-    // Burst-read all samples from FIFO
     for (uint8_t i = 0; i < FIFO_WATERMARK; i++) {
         lis.read();  // populates lis.x, lis.y, lis.z (raw int16)
 
@@ -152,7 +172,7 @@ void loop() {
         payload.accel_x      = event.acceleration.x;
         payload.accel_y      = event.acceleration.y;
         payload.accel_z      = event.acceleration.z;
-        payload.board_temp   = board_temp;
+        payload.board_temp   = last_temp_c;  // DS18B20 last good reading
 
         udp.beginPacket(HOST_IP, UDP_PORT);
         udp.write((const uint8_t*)&payload, sizeof(SensorPayload));
