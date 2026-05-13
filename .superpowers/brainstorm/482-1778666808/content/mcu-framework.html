@@ -1,0 +1,32 @@
+<h2>MCU Development Framework</h2>
+<p class="subtitle">Choosing the programming environment for STM32U585</p>
+
+<div class="options">
+  <div class="option" data-choice="arduino" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Arduino Framework (Recommended)</h3>
+      <ul>
+        <li>Reuse existing <code>Adafruit_LIS3DH</code> & <code>DallasTemperature</code> libs</li>
+        <li>Standard <code>setup()</code> / <code>loop()</code> structure</li>
+        <li>Fastest migration (~1 day)</li>
+      </ul>
+    </div>
+  </div>
+  <div class="option" data-choice="zephyr" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Zephyr RTOS</h3>
+      <ul>
+        <li>Native real-time kernel with threading</li>
+        <li>Industrial grade stability & power management</li>
+        <li>Significant rewrite needed (Device Tree, new APIs)</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Impact</h3>
+  <p><strong>Option A</strong> allows us to literally copy-paste the sensor logic and only swap the transport layer. <strong>Option B</strong> would be a ground-up rebuild of the firmware.</p>
+</div>

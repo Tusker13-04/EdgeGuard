@@ -1,0 +1,35 @@
+<h2>EdgeGuard → Arduino UNO Q Migration</h2>
+<p class="subtitle">Architectural Mapping & Key Transitions</p>
+
+<div class="section">
+  <h3>Current Prototype</h3>
+  <ul>
+    <li><strong>MCU:</strong> ESP8266 (NodeMCU)</li>
+    <li><strong>Host:</strong> Raspberry Pi</li>
+    <li><strong>Link:</strong> UDP over Wi-Fi (24B packets)</li>
+  </ul>
+</div>
+
+<div class="section">
+  <h3>Target: Arduino UNO Q</h3>
+  <ul>
+    <li><strong>MCU:</strong> STM32U585 (Cortex-M33)</li>
+    <li><strong>Host:</strong> QRB2210 (Cortex-A53, Linux)</li>
+    <li><strong>Link:</strong> Bridge RPC (MessagePack over UART)</li>
+  </ul>
+</div>
+
+<div class="mockup">
+  <div class="mockup-header">Proposed Data Flow</div>
+  <div class="mockup-body">
+    <div style="display: flex; justify-content: space-around; align-items: center; height: 100px; background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 4px;">
+      <div style="padding: 10px; border: 2px solid #007bff; border-radius: 8px;">Sensors (LIS3DH, DS18B20)</div>
+      <div style="font-size: 20px;">&rarr;</div>
+      <div style="padding: 10px; border: 2px solid #28a745; border-radius: 8px;">STM32 (Bridge.notify)</div>
+      <div style="font-size: 20px;">&rarr;</div>
+      <div style="padding: 10px; border: 2px solid #ffc107; border-radius: 8px;">QRB2210 (Bridge.provide)</div>
+      <div style="font-size: 20px;">&rarr;</div>
+      <div style="padding: 10px; border: 2px solid #17a2b8; border-radius: 8px;">Python Pipeline</div>
+    </div>
+  </div>
+</div>
