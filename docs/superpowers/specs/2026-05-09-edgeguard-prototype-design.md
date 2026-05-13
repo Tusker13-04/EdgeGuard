@@ -9,8 +9,8 @@ This document outlines the architecture for the prototype testing phase of "Edge
 - **Responsibility:** Deterministic high-frequency sensor data acquisition.
 - **Sensors:**
   - **Adafruit LIS3DH STEMMA QT** — triple-axis accelerometer (vibration), connected via **I2C** (STEMMA QT / Qwiic cable). Default I2C address `0x18` (SDO floating). CS pin is not wired in the STEMMA QT connector, so the chip is permanently in I2C mode — SPI is not used.
-  - **NTC Thermistor** — ambient/motor-case temperature via ADC.
-  - **Current Transformer (CT)** — optional phase-current sensing via ADC.
+  - **DS18B20 waterproof probe** — motor-case/ambient temperature via 1-Wire (GPIO2). 12-bit resolution, ±0.5 °C accuracy. 750ms conversion time handled asynchronously.
+  - **Current Transformer (CT)** — optional phase-current sensing via ADC. _Reserved for UNO Q deployment; not implemented in prototype._
 - **LIS3DH Configuration:**
   - Hardware ODR set to **400 Hz** (register `CTRL_REG1 = 0x77`) to ensure the data-ready (DRDY) interrupt fires faster than our poll loop.
   - Range: **±4 g** (sufficient for typical DC motor vibration; increases if clipping is observed).
@@ -36,16 +36,15 @@ struct SensorPayload {
   float accel_x;          // LIS3DH X-axis (g)
   float accel_y;          // LIS3DH Y-axis (g)
   float accel_z;          // LIS3DH Z-axis (g)
-  float temp;             // NTC thermistor (°C)
-  float current;          // CT sensor (A), 0.0 if CT not connected
+  float temp;             // DS18B20 waterproof probe (°C)
 };
-// Total: 28 bytes
+// Total: 24 bytes
 ```
 
-- **Raw Payload:** 28 bytes per packet.
+- **Raw Payload:** 24 bytes per packet.
 - **Protocol Overhead:** ~28 bytes (20-byte IPv4 header + 8-byte UDP header).
-- **Total Packet Size:** ~56 bytes.
-- **Network Load:** At 400 Hz → **~22 KB/s (179 Kbps)** — well within standard Wi-Fi capacity and significantly lower than the earlier 1 kHz estimate.
+- **Total Packet Size:** ~52 bytes.
+- **Network Load:** At 400 Hz → **~20 KB/s (160 Kbps)** — well within standard Wi-Fi capacity.
 
 ### 3.2 Timestamp Semantics
 `timestamp_us` is populated with `micros()` on the ESP8266 at the moment the LIS3DH DRDY flag is detected and the sample is read. This gives microsecond-precision relative timestamps. The Raspberry Pi uses these to:
@@ -56,7 +55,7 @@ struct SensorPayload {
 ## 4. Python Concurrency & Data Pipeline
 
 ### 4.1 Memory Architecture
-- Pre-allocated NumPy circular buffer: **1600 rows × 5 columns** (accel_x, accel_y, accel_z, temp, current) — holds 4 seconds of data at 400 Hz.
+- Pre-allocated NumPy circular buffer: **1600 rows × 4 columns** (accel_x, accel_y, accel_z, temp) — holds 4 seconds of data at 400 Hz.
 - Pre-allocated inference input tensors at startup. No `reshape` or `astype` calls inside the hot ingestion loop.
 
 ### 4.2 Thread 1: Network Ingestion (Fast Path)
@@ -100,8 +99,8 @@ Two views served by the FastAPI + WebSocket server:
 | Sensor | Interface | Address / Pin | Library |
 |---|---|---|---|
 | LIS3DH STEMMA QT | I2C (400 kHz) | `0x18` (SDO floating) | `Adafruit_LIS3DH` |
-| NTC Thermistor | ADC (A0) | — | Steinhart–Hart equation |
-| Current Transformer | ADC (A0 via MUX or A1) | — | RMS calculation |
+| DS18B20 waterproof probe | 1-Wire | GPIO2 (D4) | `DallasTemperature` / `OneWire` |
+| Current Transformer | ADC (reserved) | — | _Not implemented in prototype_ |
 
 > **STEMMA QT / Qwiic compatibility:** The Adafruit STEMMA QT connector is electrically and mechanically compatible with SparkFun Qwiic. Both are 4-pin JST SH connectors carrying 3.3 V, GND, SDA, and SCL. Either cable type can be used to connect the LIS3DH to the ESP8266's I2C bus.
 

@@ -1,6 +1,6 @@
 # EdgeGuard
 
-> Industrial predictive maintenance node — ESP8266 + MPU-6050 (I²C) + Raspberry Pi
+> Industrial predictive maintenance node — ESP8266 + LIS3DH (I²C) + DS18B20 (1-Wire) + Raspberry Pi
 
 EdgeGuard detects mechanical anomalies (imbalance, abnormal vibration) in rotating
 machinery using a low-cost sensor node streaming to a Raspberry Pi for real-time
@@ -14,29 +14,29 @@ full working prototype on ESP8266 + Raspberry Pi.
 ```
 ┌─────────────────────────┐  UDP/Wi-Fi   ┌─────────────────────────┐
 │  ESP8266 NodeMCU v2     │──────────►  │  Raspberry Pi            │
-│                         │  28B/packet  │                          │
-│  MPU-6050 (I²C 400kHz)  │              │  Thread 1: UDP ingest    │
-│  ├─ 3-axis accel ~500Hz │              │  ├─ PacketParser          │
-│  └─ on-chip temp        │              │  └─ CircularBuffer        │
-│                         │              │                          │
-│  Hardware-timer loop     │              │  Thread 2: Inference 2Hz │
-│  └─ 1 sample/packet     │              │  ├─ ONNX model (or RMS)  │
-│                         │              │  └─ JSON → stdout        │
+│                         │  24B/packet  │                          │
+│  LIS3DH  (I²C 400kHz)  │              │  Thread 1: UDP ingest    │
+│  ├─ 3-axis accel 400Hz  │              │  ├─ PacketParser          │
+│  DS18B20 (1-Wire async) │              │  └─ CircularBuffer        │
+│  └─ board temp ±0.5°C   │              │                          │
+│                         │              │  Thread 2: Inference 2Hz │
+│  FIFO watermark ISR      │              │  ├─ ONNX model (or RMS)  │
+│  └─ 25 samples/burst    │              │  └─ JSON → stdout        │
 └─────────────────────────┘              │                          │
                                          │  FastAPI dashboard        │
                                          │  ├─ Operator view         │
                                          └─ Engineering telemetry   ┘
 ```
 
-**Payload struct** (28 bytes, little-endian):
+**Payload struct** (24 bytes, little-endian):
 ```c
 struct SensorPayload {
     uint32_t timestamp_us;   // μs since boot
     uint32_t sequence_id;    // monotonic counter
-    float    accel_x;        // m/s²
-    float    accel_y;        // m/s²
-    float    accel_z;        // m/s²
-    float    board_temp;     // °C (MPU-6050 on-chip sensor)
+    float    accel_x;        // m/s² (LIS3DH)
+    float    accel_y;        // m/s² (LIS3DH)
+    float    accel_z;        // m/s² (LIS3DH)
+    float    board_temp;     // °C (DS18B20 waterproof probe, ±0.5 °C)
 };
 ```
 
@@ -47,19 +47,28 @@ struct SensorPayload {
 | Component | Role |
 |---|---|
 | ESP8266 NodeMCU v2 | Sensor acquisition + UDP streaming |
-| MPU-6050 | 3-axis accelerometer + gyroscope, I²C, ~250–500 Hz effective ODR |
+| Adafruit LIS3DH STEMMA QT | 3-axis accelerometer, I²C (0x18), 400 Hz ODR, FIFO watermark |
+| DS18B20 waterproof probe | Board/motor-case temperature, 1-Wire, ±0.5 °C, 12-bit async |
 | Raspberry Pi (any) | ML inference, dashboard, data capture |
 
-**MPU-6050 → NodeMCU wiring (I²C):**
+**LIS3DH → NodeMCU wiring (I²C via STEMMA QT cable):**
 
 ```
-MPU-6050   NodeMCU
+LIS3DH STEMMA QT   NodeMCU
+VCC             →  3V3
+GND             →  GND
+SCL             →  D1  (GPIO5)
+SDA             →  D2  (GPIO4)
+INT1            →  D3  (GPIO0)   ← FIFO watermark interrupt
+```
+
+**DS18B20 → NodeMCU wiring (1-Wire):**
+
+```
+DS18B20    NodeMCU
 VCC     →  3V3
 GND     →  GND
-SCL     →  D1  (GPIO5)
-SDA     →  D2  (GPIO4)
-AD0     →  GND  (I²C address 0x68)
-INT     →  (optional) D3 (GPIO0)
+DATA    →  D4  (GPIO2)   ← 4.7kΩ pull-up to 3.3V
 ```
 
 > ⚠️ **Before running firmware:** you must create `firmware/src/secrets.h`  
@@ -167,7 +176,7 @@ timestamp,accel_x,accel_y,accel_z,board_temp
 4.0,...
 ```
 
-- Timestamp in **milliseconds**, ~2 ms intervals (≈ 500 Hz effective rate on ESP8266 + MPU-6050 via I²C)
+- Timestamp in **milliseconds**, ~2.5 ms intervals (≈ 400 Hz effective rate on ESP8266 + LIS3DH via I²C)
 - Edge Impulse infers sampling frequency from timestamp deltas
 - Labels are encoded in the folder name (`normal/`, `imbalance/`)
 
@@ -184,9 +193,11 @@ EdgeGuard/
 │   │   └── secrets.h.example  # Template — copy and fill in
 │   └── platformio.ini
 ├── src/                       # Raspberry Pi Python pipeline
+│   ├── __init__.py
 │   ├── udp_receiver.py
-│   ├── circular_buffer.py
-│   └── inference_engine.py
+│   ├── buffer.py              # FastCircularBuffer (numpy)
+│   ├── capture.py             # Window slicing + CSV write
+│   └── inference.py           # ONNX / RMS inference engine
 ├── dashboard/
 │   ├── index.html             # Operator + Engineering UI
 │   └── server.py              # FastAPI + WebSocket bridge
@@ -223,9 +234,9 @@ pytest tests/ -v
 
 ## Limitations
 
-- MPU-6050 on-chip temperature has limited accuracy; used for trend only.
-- Effective sampling rate on ESP8266 via I²C: ~250–500 Hz (hardware overhead
-  limits the theoretical 1 kHz ODR; empirically measure and confirm before training).
+- DS18B20 temperature is accurate to ±0.5 °C; used for motor-case thermal trend only.
+- Effective sampling rate on ESP8266 via I²C: 400 Hz (LIS3DH hardware ODR;
+  FIFO watermark of 25 samples reduces interrupt overhead).
 - ONNX model slot is wired but empty until Edge Impulse training is complete.
   The rule-based RMS fallback runs automatically until then.
 - CWRU benchmark dataset (12 kHz) is used offline for model validation only;
