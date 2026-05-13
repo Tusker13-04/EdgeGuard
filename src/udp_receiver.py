@@ -14,6 +14,8 @@
 import struct
 import time
 import numpy as np
+from abc import ABC, abstractmethod
+import socket
 
 PACKET_FORMAT = '<LLffff'
 PACKET_SIZE   = struct.calcsize(PACKET_FORMAT)  # 24 bytes
@@ -24,6 +26,25 @@ assert PACKET_SIZE == 24, f"Packet size mismatch: {PACKET_SIZE}"
 FEATURE_COLS = ["accel_x", "accel_y", "accel_z", "board_temp"]
 N_FEATURES   = len(FEATURE_COLS)  # 4
 
+class BaseReceiver(ABC):
+    """Abstract base class for telemetry ingest providers."""
+    
+    @abstractmethod
+    def run(self, buf, stop_event):
+        """Main ingest loop. Should block until stop_event is set."""
+        pass
+
+    @property
+    @abstractmethod
+    def last_temp_c(self):
+        """Most recent board temperature in °C."""
+        pass
+
+    @property
+    @abstractmethod
+    def drop_rate_pct(self) -> float:
+        """Current packet drop rate as a percentage."""
+        pass
 
 class PacketParser:
     """Stateful parser that tracks sequence gaps, inter-arrival jitter,
@@ -81,6 +102,37 @@ class PacketParser:
             return 0.0
         return 100.0 * self.total_dropped / total
 
+class UDPReceiver(BaseReceiver):
+    """UDP ingest provider for ESP8266 prototype."""
+    
+    def __init__(self, port: int = 4444):
+        self.port = port
+        self.parser = PacketParser()
+
+    def run(self, buf, stop_event):
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.bind(("", self.port))
+        sock.settimeout(1.0)
+        
+        while not stop_event.is_set():
+            try:
+                data, _ = sock.recvfrom(64)
+                result = self.parser.parse(data)
+                if result is None:
+                    continue
+                _ts, _seq, features, _jitter, _dropped = result
+                buf.add_row(features)
+            except socket.timeout:
+                continue
+        sock.close()
+
+    @property
+    def last_temp_c(self):
+        return self.parser.last_temp_c
+
+    @property
+    def drop_rate_pct(self) -> float:
+        return self.parser.drop_rate_pct
 
 def parse_payload(packet_bytes: bytes):
     """Lightweight stateless parse. Returns (timestamp_us, seq_id, features_np)."""
