@@ -1,11 +1,13 @@
 # src/buffer.py
-# Thread-safe numpy circular buffer for the 400Hz UDP ingestion pipeline.
+# Thread-safe numpy circular buffer for the 400 Hz ingestion pipeline.
 #
 # Two threads access this:
-#   Thread 1 (network) : calls add_row() inside a lock
-#   Thread 2 (inference): calls get_snapshot() inside a lock
+#   Thread 1 (network/bridge) : calls add_row()     — lock held briefly
+#   Thread 2 (inference)      : calls get_snapshot() — expensive copy OUTSIDE lock
 #
-# Lock held only for the duration of the write / the copy — not during inference.
+# Key design: get_snapshot() copies only scalar indices under the lock,
+# then performs the (potentially slow) np.concatenate OUTSIDE the lock.
+# This prevents the ingest thread from stalling while inference copies data.
 
 import numpy as np
 import threading
@@ -13,8 +15,11 @@ import threading
 from src.udp_receiver import N_FEATURES  # 4
 
 # Default capacity: 4 seconds at 400 Hz = 1600 rows
-# Increase if you want longer inference windows
 DEFAULT_CAPACITY = 1600
+
+# Column index constants — update here if firmware column order ever changes
+ACCEL_COLS = slice(0, 3)   # indices 0,1,2 = accel_x, accel_y, accel_z
+TEMP_COL   = 3             # index  3      = board_temp
 
 
 class FastCircularBuffer:
@@ -25,15 +30,15 @@ class FastCircularBuffer:
     """
 
     def __init__(self, capacity: int = DEFAULT_CAPACITY, features: int = N_FEATURES):
-        self.capacity    = capacity
-        self.features    = features
-        self._buf        = np.zeros((capacity, features), dtype=np.float32)
-        self._write_idx  = 0
-        self._is_full    = False
-        self._lock       = threading.Lock()
+        self.capacity   = capacity
+        self.features   = features
+        self._buf       = np.zeros((capacity, features), dtype=np.float32)
+        self._write_idx = 0
+        self._is_full   = False
+        self._lock      = threading.Lock()
 
-    def add_row(self, row: np.ndarray):
-        """Write one feature row. Call from network thread only."""
+    def add_row(self, row: np.ndarray) -> None:
+        """Write one feature row. Call from network/ingest thread only."""
         with self._lock:
             self._buf[self._write_idx] = row
             self._write_idx += 1
@@ -45,14 +50,26 @@ class FastCircularBuffer:
         """
         Returns a chronological copy of all rows currently in the buffer.
         If not yet full, returns only the rows written so far.
+
+        The expensive np.concatenate / .copy() is performed OUTSIDE the lock
+        so the ingest thread is never blocked by inference timing.
         """
+        # --- Critical section: copy only O(1) scalars -----------------------
         with self._lock:
-            if not self._is_full:
-                return self._buf[:self._write_idx].copy()
-            # Unwrap: tail (oldest) ++ head (newest)
-            tail = self._buf[self._write_idx:]
-            head = self._buf[:self._write_idx]
-            return np.concatenate((tail, head), axis=0)
+            wi   = self._write_idx
+            full = self._is_full
+            # Take a view of the underlying array — safe because numpy arrays
+            # are not resized; we copy the needed slices outside the lock.
+            buf_ref = self._buf
+        # --- End critical section --------------------------------------------
+
+        if not full:
+            return buf_ref[:wi].copy()
+
+        # Unwrap ring: tail (oldest) ++ head (newest) — copies outside lock
+        tail = buf_ref[wi:].copy()
+        head = buf_ref[:wi].copy()
+        return np.concatenate((tail, head), axis=0)
 
     @property
     def n_rows(self) -> int:

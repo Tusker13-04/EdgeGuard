@@ -37,11 +37,15 @@ def slice_windows(data: np.ndarray, window_size: int = WINDOW_SIZE):
     return [data[i * window_size:(i + 1) * window_size] for i in range(n_windows)]
 
 
-def save_window_as_csv(window: np.ndarray, label: str, output_dir: str) -> str:
+def save_window_as_csv(window: np.ndarray, label: str, output_dir: str,
+                       window_index: int = 0) -> str:
     """
     Save one window as a correctly-formatted Edge Impulse CSV.
     Timestamp column is in milliseconds, starting at 0 for each file.
     Returns the path of the saved file.
+
+    window_index is appended to the filename to prevent timestamp collisions
+    when multiple windows are saved in the same millisecond.
     """
     assert window.shape == (WINDOW_SIZE, N_FEATURES), (
         f"Window shape {window.shape} != ({WINDOW_SIZE}, {N_FEATURES})"
@@ -50,7 +54,8 @@ def save_window_as_csv(window: np.ndarray, label: str, output_dir: str) -> str:
     os.makedirs(label_dir, exist_ok=True)
 
     ts_str   = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
-    filepath = os.path.join(label_dir, f"{ts_str}.csv")
+    # Append window_index to prevent filename collisions on fast CPUs
+    filepath = os.path.join(label_dir, f"{ts_str}_{window_index:04d}.csv")
 
     with open(filepath, "w", newline="") as f:
         writer = csv.writer(f)
@@ -78,6 +83,9 @@ def record_session(
     Raises ValueError if fewer than WINDOW_SIZE rows were captured (nothing
     to save).  Prints a warning if fewer rows than requested were captured
     but at least one full window is available.
+
+    FIX: records the buffer write position at the moment recording starts
+    (after the countdown) so that pre-countdown samples are excluded.
     """
     n_rows_needed = duration_seconds * SAMPLE_RATE_HZ
 
@@ -89,10 +97,16 @@ def record_session(
         time.sleep(1)
     print("[Capture] RECORDING", flush=True)
 
-    # Poll until we have enough fresh rows in the buffer
-    deadline = time.perf_counter() + duration_seconds + 2.0  # +2s grace
+    # Watermark: snapshot write position at the moment recording begins.
+    # Only rows written AFTER this point belong to the current label.
+    record_start_rows = buffer.n_rows
+    record_start_time = time.perf_counter()
+
+    # Poll until the buffer has accumulated n_rows_needed NEW rows since start
+    deadline = record_start_time + duration_seconds + 2.0  # +2s grace
     while True:
-        if buffer.n_rows >= n_rows_needed:
+        new_rows = buffer.n_rows - record_start_rows
+        if new_rows >= n_rows_needed:
             break
         if time.perf_counter() > deadline:
             print("[Capture] WARNING: buffer did not fill in time. Saving what we have.")
@@ -100,11 +114,14 @@ def record_session(
         time.sleep(0.05)
 
     snap = buffer.get_snapshot()
-    data = snap[-n_rows_needed:].astype(np.float32)  # take most recent rows
 
-    # ── Truncation guard (fix #10) ──────────────────────────────────────────
-    # If fewer rows were captured than requested, warn but continue as long as
-    # at least one full window (WINDOW_SIZE rows) is available.
+    # Extract only the rows captured AFTER the countdown
+    new_rows_available = min(
+        buffer.n_rows - record_start_rows,
+        n_rows_needed,
+    )
+    data = snap[-max(new_rows_available, 1):].astype(np.float32)
+
     if len(data) < n_rows_needed:
         print(
             f"[Capture] WARNING: captured {len(data)} rows "
@@ -114,13 +131,17 @@ def record_session(
     if len(data) < WINDOW_SIZE:
         raise ValueError(
             f"[Capture] Captured only {len(data)} rows — minimum is "
-            f"{WINDOW_SIZE} (one window). Check that the ESP8266 is streaming "
-            f"and the UDP port is correct."
+            f"{WINDOW_SIZE} (one window). Check that the sensor firmware is "
+            f"running and the ingest transport (UDP port / Bridge IPC FIFO) "
+            f"is active and receiving data."
         )
-    # ── End truncation guard ────────────────────────────────────────────────
 
     windows = slice_windows(data)
-    paths   = [save_window_as_csv(w, label=label, output_dir=output_dir) for w in windows]
+    # Pass window_index to avoid filename timestamp collisions on fast CPUs
+    paths = [
+        save_window_as_csv(w, label=label, output_dir=output_dir, window_index=i)
+        for i, w in enumerate(windows)
+    ]
 
-    print(f"[Capture] Done. {len(paths)} windows → {output_dir}/{label}/")
+    print(f"[Capture] Done. {len(paths)} windows -> {output_dir}/{label}/")
     return paths
