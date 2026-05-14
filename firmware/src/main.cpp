@@ -34,7 +34,7 @@
 #define LIS3DH_INT1_PIN  0
 
 // ── DS18B20 1-Wire pin ────────────────────────────────────────────────────
-// Data wire = D4 / GPIO2 (3.3V with 4.7k\u03a9 pull-up to 3.3V)
+// Data wire = D4 / GPIO2 (3.3V with 4.7kΩ pull-up to 3.3V)
 #define ONE_WIRE_PIN  2
 
 // ── Sampling config ───────────────────────────────────────────────────────
@@ -42,6 +42,11 @@
 // FIFO watermark = 25 samples → ISR fires every ~62.5 ms
 // DS18B20 conversion time at 12-bit = 750 ms → read once per FIFO burst
 #define FIFO_WATERMARK  25
+
+// ── I2C clock-stretch timeout (ESP8266 specific) ──────────────────────────
+// Default is 230 μs; set to 2000 μs to detect a hung LIS3DH without
+// blocking the loop() indefinitely.
+#define I2C_CLOCK_STRETCH_LIMIT_US  2000
 
 // ── Payload (must match Pi's struct.unpack format '<LLffff') ──────────────
 struct __attribute__((packed)) SensorPayload {
@@ -61,16 +66,21 @@ DallasTemperature  tempSensor(&oneWire);
 WiFiUDP            udp;
 SensorPayload      payload;
 uint32_t           seq_counter      = 0;
-volatile bool      fifo_ready       = false;
+// FIX: use volatile uint8_t as atomic flag instead of volatile bool.
+// noInterrupts()/interrupts() guards in loop() ensure test-and-clear is atomic.
+volatile uint8_t   fifo_ready       = 0;
 float              last_temp_c      = 25.0f;
 bool               temp_req_pending = false;
 uint32_t           temp_req_ms      = 0;
+uint32_t           fifo_overflows   = 0;  // diagnostic counter
 
 #define DS18B20_CONV_MS  750
 
 // ── FIFO watermark ISR ────────────────────────────────────────────────────
+// Marked ICACHE_RAM_ATTR so it runs from IRAM, not flash (avoids cache miss
+// latency on ESP8266 when flash is busy with WiFi stack).
 ICACHE_RAM_ATTR void onFifoWatermark() {
-    fifo_ready = true;
+    fifo_ready = 1;
 }
 
 // ── setup ─────────────────────────────────────────────────────────────────
@@ -92,6 +102,9 @@ void setup() {
 
     Wire.begin();
     Wire.setClock(400000);
+    // FIX: set I2C clock-stretch timeout to detect hung LIS3DH.
+    // Without this, a stuck SCL line hangs loop() forever with no recovery.
+    Wire.setClockStretchLimit(I2C_CLOCK_STRETCH_LIMIT_US);
 
     if (!lis.begin(LIS3DH_ADDR)) {
         Serial.println("[EdgeGuard] FATAL: LIS3DH not found.");
@@ -128,20 +141,57 @@ void setup() {
 
 // ── loop ──────────────────────────────────────────────────────────────────
 void loop() {
+    // ── Async temperature read (non-blocking) ──────────────────────────────
     if (temp_req_pending && (millis() - temp_req_ms >= DS18B20_CONV_MS)) {
         float t = tempSensor.getTempCByIndex(0);
         if (t > -100.0f) last_temp_c = t;
+        // FIX: was missing — temp_req_pending was never cleared, so the
+        // condition re-evaluated every loop() call and called requestTemperatures()
+        // on every iteration after the first 750 ms, thrashing the 1-Wire bus.
+        temp_req_pending = false;
         tempSensor.requestTemperatures();
-        temp_req_ms = millis();
+        temp_req_pending = true;
+        temp_req_ms      = millis();
     }
 
-    if (!fifo_ready) return;
-    fifo_ready = false;
+    // ── FIX: Atomic test-and-clear of fifo_ready ISR flag ─────────────────
+    // A non-atomic read-then-clear allows the ISR to fire between the test
+    // and the clear, silently losing the second interrupt (missed batch).
+    // noInterrupts()/interrupts() provide the required critical section on
+    // single-core Xtensa LX106.
+    noInterrupts();
+    uint8_t batch_ready = fifo_ready;
+    fifo_ready = 0;
+    interrupts();
 
+    if (!batch_ready) return;
+
+    // ── FIX: FIFO overflow check before draining ───────────────────────────
+    // LIS3DH FIFO_SRC_REG bit 6 (OVR) is set if a sample was overwritten
+    // before being read. Log and reset FIFO to avoid reading stale data.
+    uint8_t fifo_src = lis.readRegister8(LIS3DH_REG_FIFOSRC);
+    if (fifo_src & 0x40) {
+        fifo_overflows++;
+        Serial.print("[EdgeGuard] WARN: FIFO overflow #");
+        Serial.println(fifo_overflows);
+        // Reset FIFO: bypass mode → stream mode
+        lis.writeRegister8(LIS3DH_REG_FIFOCTRL, 0x00);
+        lis.writeRegister8(LIS3DH_REG_FIFOCTRL,
+            (0x01 << 6) | (FIFO_WATERMARK & 0x1F));
+        return;  // Discard this batch — data integrity cannot be guaranteed
+    }
+
+    // ── Drain FIFO ────────────────────────────────────────────────────────
     for (uint8_t i = 0; i < FIFO_WATERMARK; i++) {
-        lis.read();
+        // FIX: REMOVED standalone lis.read() that was here before.
+        // getEvent() calls lis.read() internally as its first operation.
+        // Having both caused 2 FIFO pops per iteration:
+        //   - first  pop: data discarded (lis.read() result unused)
+        //   - second pop: data used      (getEvent() result)
+        // Net effect: every odd sample was silently dropped, true throughput
+        // was ~200 Hz instead of 400 Hz, and sequence gaps corrupted telemetry.
         sensors_event_t event;
-        lis.getEvent(&event);
+        lis.getEvent(&event);  // ← single FIFO pop; read() called internally
 
         payload.timestamp_us = micros();
         payload.sequence_id  = seq_counter++;
