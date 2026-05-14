@@ -19,10 +19,9 @@ from src.udp_receiver import BaseReceiver
 
 log = logging.getLogger(__name__)
 
-# Default path exposed by arduino-router; override via env var
-BRIDGE_FIFO_PATH = os.environ.get(
-    "EDGEGUARD_BRIDGE_FIFO", "/run/arduino/sensor_batch"
-)
+# Module-level default; actual value is resolved in __init__ so that
+# setting EDGEGUARD_BRIDGE_FIFO after import still takes effect.
+_DEFAULT_FIFO_PATH = "/run/arduino/sensor_batch"
 
 # How long to wait for the FIFO to appear before giving up
 FIFO_WAIT_TIMEOUT_S = 30.0
@@ -40,6 +39,8 @@ class BridgeParser:
         ('board_temp',   '<f4'),
     ])
     PACKET_SIZE = 24  # bytes per SensorPayload struct
+    BATCH_PACKETS = 25
+    BATCH_SIZE = PACKET_SIZE * BATCH_PACKETS  # 600 bytes
 
     def parse_batch(self, data: bytes) -> List[Tuple[int, int, np.ndarray]]:
         """
@@ -70,20 +71,56 @@ class BridgeReceiver(BaseReceiver):
     Ingest provider for UNO Q via arduino-router Bridge IPC FIFO.
 
     The arduino-router exposes Bridge.notify() payloads as a blocking
-    named FIFO at BRIDGE_FIFO_PATH.  Each 600-byte read = one batch of 25
+    named FIFO at fifo_path.  Each 600-byte read = one batch of 25
     sensor samples at 400 Hz.
     """
 
-    def __init__(self, fifo_path: str = BRIDGE_FIFO_PATH):
-        self.fifo_path = fifo_path
+    def __init__(self, fifo_path: str | None = None):
+        # FIX: resolve FIFO path at construction time, not at import time.
+        # The previous module-level BRIDGE_FIFO_PATH = os.environ.get(...)
+        # evaluated os.environ once when the module was imported, so setting
+        # EDGEGUARD_BRIDGE_FIFO after import (e.g. in tests) had no effect.
+        self.fifo_path = (
+            fifo_path
+            or os.environ.get("EDGEGUARD_BRIDGE_FIFO")
+            or _DEFAULT_FIFO_PATH
+        )
         self.parser = BridgeParser()
         self._last_seq: int | None = None
         self._last_temp_c: float | None = None
         self.total_received: int = 0
         self.total_dropped: int = 0
 
+    def _read_exact(self, fifo, n: int, stop_event) -> bytes | None:
+        """
+        FIX: Read exactly n bytes from a named FIFO, handling short reads.
+
+        Named FIFOs follow POSIX pipe semantics: a single read() call may
+        return fewer bytes than requested even when more data is available
+        (the writer may fill the pipe in multiple write() calls smaller than
+        BATCH_SIZE, or the kernel pipe buffer may be partially full).
+
+        The previous code used a bare fifo.read(BATCH_SIZE) and skipped
+        with 'continue' on short reads, silently discarding every partial
+        batch and creating invisible data gaps.
+
+        This accumulator loop reads until exactly n bytes are collected.
+        Returns None only on EOF (writer closed FIFO), so the caller can
+        trigger a clean FIFO reopen.
+        """
+        buf = bytearray()
+        while len(buf) < n:
+            if stop_event.is_set():
+                return None
+            chunk = fifo.read(n - len(buf))
+            if not chunk:
+                # EOF: writer (arduino-router) closed its end of the FIFO
+                return None
+            buf.extend(chunk)
+        return bytes(buf)
+
     def run(self, buf, stop_event) -> None:
-        # Wait for arduino-router to create the FIFO
+        # ── Wait for arduino-router to create the FIFO ────────────────────────
         deadline = time.monotonic() + FIFO_WAIT_TIMEOUT_S
         while not os.path.exists(self.fifo_path):
             if stop_event.is_set():
@@ -98,30 +135,38 @@ class BridgeReceiver(BaseReceiver):
             time.sleep(0.1)
 
         log.info("[BridgeReceiver] Opening FIFO: %s", self.fifo_path)
-
-        BATCH_SIZE = self.parser.PACKET_SIZE * 25  # 600 bytes
+        BATCH_SIZE = self.parser.BATCH_SIZE  # 600 bytes
 
         while not stop_event.is_set():
             try:
                 with open(self.fifo_path, 'rb') as fifo:
                     log.info("[BridgeReceiver] FIFO open — ingesting batches.")
                     while not stop_event.is_set():
-                        data = fifo.read(BATCH_SIZE)
-                        if not data:
-                            # FIFO closed (arduino-router restarted)
+                        # FIX: use _read_exact() instead of fifo.read(BATCH_SIZE)
+                        # to handle OS pipe short-reads transparently.
+                        data = self._read_exact(fifo, BATCH_SIZE, stop_event)
+                        if data is None:
+                            # EOF: arduino-router closed its write end
                             log.warning(
                                 "[BridgeReceiver] FIFO EOF — re-opening in 1s."
                             )
                             time.sleep(1.0)
                             break
-                        if len(data) < BATCH_SIZE:
-                            # Short read: skip fragment
-                            continue
 
                         samples = self.parser.parse_batch(data)
                         for _ts, seq, features in samples:
                             if self._last_seq is not None:
                                 gap = (seq - self._last_seq - 1) & 0xFFFFFFFF
+                                # Guard: large gaps indicate firmware reboot,
+                                # not a real drop storm — reset rather than
+                                # inflating drop_rate_pct by millions.
+                                if gap > 10_000:
+                                    log.warning(
+                                        "[BridgeReceiver] Seq jump %d→%d "
+                                        "(gap=%d): firmware reboot? Resetting.",
+                                        self._last_seq, seq, gap,
+                                    )
+                                    gap = 0
                                 self.total_dropped += int(gap)
                             self._last_seq = seq
                             self.total_received += 1

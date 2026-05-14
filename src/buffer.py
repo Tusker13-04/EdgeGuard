@@ -51,27 +51,52 @@ class FastCircularBuffer:
         Returns a chronological copy of all rows currently in the buffer.
         If not yet full, returns only the rows written so far.
 
-        The expensive np.concatenate / .copy() is performed OUTSIDE the lock
-        so the ingest thread is never blocked by inference timing.
+        The expensive .copy() is performed OUTSIDE the lock so the ingest
+        thread is never blocked by inference copy latency.
+
+        FIX: previously buf_ref was a reference to self._buf captured inside
+        the lock, but buf_ref[wi:].copy() ran OUTSIDE the lock.  If a future
+        refactor ever replaces self._buf (e.g. resize), buf_ref would be
+        stale and the copy would read from a detached array while the ingest
+        thread wrote into the new one.  Instead we now capture numpy *views*
+        (zero-copy slices) inside the lock and call .copy() on them outside.
+        numpy slice objects hold a reference to the underlying data buffer,
+        so they are safe to copy after releasing the lock as long as the
+        array is not replaced — which this class never does.
         """
-        # --- Critical section: copy only O(1) scalars -----------------------
         with self._lock:
             wi   = self._write_idx
             full = self._is_full
-            # Take a view of the underlying array — safe because numpy arrays
-            # are not resized; we copy the needed slices outside the lock.
-            buf_ref = self._buf
-        # --- End critical section --------------------------------------------
+            if not full:
+                # Capture a view of the live portion only
+                view = self._buf[:wi]      # O(1) — no copy inside lock
+            else:
+                # Capture both ring segments as views inside the lock
+                # so wi cannot change between the two slice operations.
+                tail_view = self._buf[wi:]  # oldest rows
+                head_view = self._buf[:wi]  # newest rows
 
+        # .copy() outside the lock — may be slow for large buffers
         if not full:
-            return buf_ref[:wi].copy()
+            return view.copy()
 
-        # Unwrap ring: tail (oldest) ++ head (newest) — copies outside lock
-        tail = buf_ref[wi:].copy()
-        head = buf_ref[:wi].copy()
+        tail = tail_view.copy()
+        head = head_view.copy()
         return np.concatenate((tail, head), axis=0)
 
     @property
     def n_rows(self) -> int:
         with self._lock:
             return self.capacity if self._is_full else self._write_idx
+
+    def clear(self) -> None:
+        """
+        Reset the buffer to empty without re-allocating the underlying array.
+        Useful in test harnesses and capture sessions that reuse a buffer
+        across multiple labelled recordings without restarting the process.
+        """
+        with self._lock:
+            self._write_idx = 0
+            self._is_full   = False
+            # Zero the data so stale samples cannot leak into the next session
+            self._buf[:] = 0.0
