@@ -9,7 +9,7 @@
 #   uvicorn dashboard.server:app --host 0.0.0.0 --port 8080
 #
 # Environment variables:
-#   EDGEGUARD_MODE            'udp' (default) or 'bridge'
+#   EDGEGUARD_MODE            'bridge' (default) or 'udp'
 #   EDGEGUARD_DEMO            Path to a .jsonl replay file (activates demo mode)
 #   EDGEGUARD_BRIDGE_FIFO     Override Bridge IPC FIFO path
 #   EDGEGUARD_MAX_CLIENTS     Max simultaneous WebSocket clients (default: 10)
@@ -35,7 +35,10 @@ app = FastAPI(title="EdgeGuard Dashboard")
 MAIN_PY = str(Path(__file__).resolve().parent.parent / "main.py")
 
 _DEMO_FILE       = os.environ.get("EDGEGUARD_DEMO",    "")
-_MODE            = os.environ.get("EDGEGUARD_MODE",    "udp")
+# FIX: was 'udp' -- align default with main.py which defaults to 'bridge'
+# (the production UNO Q target).  Using 'udp' here caused the server to
+# always spawn main.py --mode udp even on a fully wired UNO Q board.
+_MODE            = os.environ.get("EDGEGUARD_MODE",    "bridge")
 _BRIDGE_FIFO     = os.environ.get("EDGEGUARD_BRIDGE_FIFO", "")
 _MAX_CLIENTS     = int(os.environ.get("EDGEGUARD_MAX_CLIENTS", "10"))
 _ALLOWED_ORIGINS = [
@@ -46,7 +49,7 @@ _ALLOWED_ORIGINS = [
 # Mutable set of live WebSocket clients
 _clients: set[WebSocket] = set()
 
-# Strong references to background tasks — prevents Python GC from cancelling them
+# Strong references to background tasks -- prevents Python GC from cancelling them
 _background_tasks: set[asyncio.Task] = set()
 
 
@@ -126,11 +129,11 @@ async def _pipeline_reader_with_restart() -> None:
         try:
             await _pipeline_reader()
         except asyncio.CancelledError:
-            log.info("[Server] Pipeline reader cancelled — shutting down.")
+            log.info("[Server] Pipeline reader cancelled -- shutting down.")
             break
         except Exception as exc:
             log.error(
-                "[Server] Pipeline reader raised %s — restarting in %.1fs.",
+                "[Server] Pipeline reader raised %s -- restarting in %.1fs.",
                 exc, restart_delay,
             )
         await asyncio.sleep(restart_delay)
