@@ -1,17 +1,18 @@
 # capture_session.py
 # Record a labelled data capture session for Edge Impulse training.
+# Target hardware: Arduino UNO Q (Qualcomm QRB2210 + STM32U585)
 #
-# Usage (ESP8266 / UDP):
+# Usage (UNO Q / Bridge IPC — production):
 #   python capture_session.py --label normal    --duration 30
 #   python capture_session.py --label imbalance --duration 30
 #
-# Usage (UNO Q / Bridge IPC):
-#   python capture_session.py --mode bridge --label normal    --duration 30
-#   python capture_session.py --mode bridge --label imbalance --duration 30
+# Usage (UDP — bench/dev testing without physical UNO Q hardware):
+#   python capture_session.py --mode udp --label normal    --duration 30
+#   python capture_session.py --mode udp --label imbalance --duration 30
 #
 # Override Bridge IPC FIFO path:
 #   EDGEGUARD_BRIDGE_FIFO=/run/arduino/sensor_batch \
-#     python capture_session.py --mode bridge --label normal
+#     python capture_session.py --label normal
 #
 # Output: data/raw/<label>/<timestamp>_<index>.csv  (Edge Impulse-ready)
 
@@ -34,10 +35,11 @@ def udp_ingest_thread(
     parser: PacketParser,
     stop_event: threading.Event,
 ) -> None:
+    """Legacy UDP ingest — bench/dev use only. Production uses BridgeReceiver."""
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.bind(("", UDP_PORT))
     sock.settimeout(1.0)
-    print(f"[UDP] Listening on :{UDP_PORT}")
+    print(f"[UDP] Listening on :{UDP_PORT} (bench/dev mode)")
     while not stop_event.is_set():
         try:
             data, _addr = sock.recvfrom(64)
@@ -52,10 +54,10 @@ def udp_ingest_thread(
 
 
 if __name__ == "__main__":
-    ap = argparse.ArgumentParser(description="EdgeGuard capture session")
+    ap = argparse.ArgumentParser(description="EdgeGuard capture session (Arduino UNO Q)")
     ap.add_argument(
-        "--mode", default="udp", choices=["udp", "bridge"],
-        help="Ingest mode: 'udp' for ESP8266, 'bridge' for UNO Q (default: udp)",
+        "--mode", default="bridge", choices=["bridge", "udp"],
+        help="Ingest mode: 'bridge' for UNO Q Bridge IPC (default), 'udp' for bench/dev only",
     )
     ap.add_argument(
         "--label", required=True, choices=["normal", "imbalance"],

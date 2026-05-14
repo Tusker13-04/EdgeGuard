@@ -1,13 +1,15 @@
 # main.py
-# EdgeGuard live inference pipeline — run on QRB2210 MPU (UNO Q) or Raspberry Pi.
+# EdgeGuard live inference pipeline — runs on Arduino UNO Q (Qualcomm QRB2210 MPU).
 #
 # Architecture:
-#   Thread 1 (ingest) : BridgeReceiver / UDPReceiver → FastCircularBuffer
+#   Thread 1 (ingest) : BridgeReceiver → FastCircularBuffer  [production]
+#                       UDPReceiver    → FastCircularBuffer  [bench/dev only]
 #   Thread 2 (main)   : FastCircularBuffer → run_inference_cycle() → stdout
 #
 # Usage:
-#   python main.py                            # live UDP mode (ESP8266)
-#   python main.py --mode bridge              # live Bridge IPC mode (UNO Q)
+#   python main.py                            # Bridge IPC mode (UNO Q default)
+#   python main.py --mode bridge              # explicit Bridge IPC mode
+#   python main.py --mode udp                 # legacy UDP mode (bench/dev only)
 #   python main.py --demo data/demo.jsonl     # replay a recorded telemetry file
 #   python main.py --port 4444 --interval 0.5
 #
@@ -21,7 +23,7 @@
 
 import sys
 
-# Python version guard: Union X | Y syntax and BridgeReceiver use 3.10+ features
+# Python version guard
 if sys.version_info < (3, 10):
     raise RuntimeError(
         f"EdgeGuard requires Python >= 3.10. "
@@ -48,8 +50,7 @@ logging.basicConfig(
 )
 log = logging.getLogger("edgeguard")
 
-UDP_PORT    = 4444
-BRIDGE_PORT = 4445
+UDP_PORT = 4444
 
 
 # ---------------------------------------------------------------------------
@@ -141,26 +142,23 @@ def run_live(receiver: Union["UDPReceiver", "BridgeReceiver"], interval: float) 
     signal.signal(signal.SIGINT,  _shutdown)
     signal.signal(signal.SIGTERM, _shutdown)
 
-    # Ingest thread with watchdog container
-    _ingest_exc: list = [None]   # mutable container — no nonlocal needed
+    _ingest_exc: list = [None]
 
     def _ingest_guarded():
         try:
             receiver.run(buf, stop_event)
         except Exception as exc:
             _ingest_exc[0] = exc
-            stop_event.set()   # signal main loop to shut down cleanly
+            stop_event.set()
 
     ingest = threading.Thread(target=_ingest_guarded, daemon=True)
     ingest.start()
     log.info("Inference loop starting at %.1fHz (mode: %s)",
              1.0 / interval, receiver.__class__.__name__)
 
-    # Drift-resilient timer: advance anchor each cycle
     next_tick = time.perf_counter()
 
     while not stop_event.is_set():
-        # Watchdog: surface ingest thread crash to operator
         if _ingest_exc[0] is not None:
             log.critical(
                 "[Watchdog] Ingest thread died with: %s — shutting down.",
@@ -183,11 +181,9 @@ def run_live(receiver: Union["UDPReceiver", "BridgeReceiver"], interval: float) 
         }
         print(json.dumps(telemetry), flush=True)
 
-        # Drift-resilient sleep: advance tick anchor each cycle
         next_tick += interval
         sleep_time = next_tick - time.perf_counter()
         if sleep_time < -interval:
-            # More than one full interval behind — reset anchor to avoid catch-up storm
             log.warning(
                 "[Timing] Inference overrun: %.1f ms behind — resetting tick anchor.",
                 -sleep_time * 1000,
@@ -209,18 +205,18 @@ def run_live(receiver: Union["UDPReceiver", "BridgeReceiver"], interval: float) 
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    ap = argparse.ArgumentParser(description="EdgeGuard live inference pipeline")
+    ap = argparse.ArgumentParser(description="EdgeGuard live inference pipeline (Arduino UNO Q)")
     ap.add_argument(
-        "--mode", type=str, default="udp", choices=["udp", "bridge"],
-        help="Ingest mode: 'udp' for ESP8266, 'bridge' for UNO Q Bridge IPC (default: udp)",
+        "--mode", type=str, default="bridge", choices=["bridge", "udp"],
+        help="Ingest mode: 'bridge' for UNO Q Bridge IPC (default), 'udp' for bench/dev testing",
     )
     ap.add_argument(
         "--port", type=int, default=UDP_PORT,
-        help=f"UDP port to listen on (UDP mode only, default: {UDP_PORT})",
+        help=f"UDP port (UDP bench mode only, default: {UDP_PORT})",
     )
     ap.add_argument(
         "--bridge-fifo", type=str, default=None, metavar="PATH",
-        help="Override Bridge IPC FIFO path (bridge mode only). "
+        help="Override Bridge IPC FIFO path. "
              "Default: $EDGEGUARD_BRIDGE_FIFO or /run/arduino/sensor_batch",
     )
     ap.add_argument(
