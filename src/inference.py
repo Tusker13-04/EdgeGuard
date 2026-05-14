@@ -25,8 +25,15 @@ log = logging.getLogger(__name__)
 MODEL_PATH  = os.path.join(os.path.dirname(__file__), "..", "model", "edgeguard.onnx")
 CLASS_NAMES = ["normal", "imbalance"]
 
-# Rule-based fallback: flag if XYZ RMS exceeds this threshold (m/s^2)
-RMS_ANOMALY_THRESHOLD = 12.0
+# FIX #9: raised from 12.0 to 40.0 m/s².
+# At LIS3DH ±8g range (78.4 m/s² full scale), 12.0 m/s² (~1.2g) is below
+# typical idle motor vibration and produces near-100% false positives.
+# 40.0 m/s² (~4g) is a calibrated starting point for imbalance detection;
+# adjust based on baseline vibration measurements for the specific motor.
+RMS_ANOMALY_THRESHOLD = 40.0
+
+# Max consecutive ONNX failures before the session is disabled (FIX #9)
+_ONNX_FAIL_LIMIT = 5
 
 # Inference runs every INFERENCE_INTERVAL_S seconds
 INFERENCE_INTERVAL_S = 0.5  # 2 Hz
@@ -55,9 +62,10 @@ def _load_model():
 def _rule_based_score(snapshot: np.ndarray) -> dict:
     """
     Fallback when no ONNX model is available.
-    Uses ACCEL_COLS constant so column order is documented centrally in buffer.py.
+    Uses ACCEL_COLS constant (slice(0,3)) so column layout is documented
+    centrally in buffer.py and fails loudly if N_FEATURES ever changes.
     """
-    xyz   = snapshot[:, ACCEL_COLS]   # columns 0,1,2 = accel_x, accel_y, accel_z
+    xyz   = snapshot[:, ACCEL_COLS]   # accel_x, accel_y, accel_z
     rms   = float(np.sqrt(np.mean(xyz ** 2)))
     score = min(1.0, rms / RMS_ANOMALY_THRESHOLD)
     label = CLASS_NAMES[1] if score > 0.5 else CLASS_NAMES[0]
@@ -88,47 +96,85 @@ def _onnx_score(sess, snapshot: np.ndarray) -> dict:
     }
 
 
-def run_inference_cycle(buffer: FastCircularBuffer, sess=None) -> dict:
+class InferencePipeline:
     """
-    Single inference cycle. Call this in a loop from the inference thread.
-    Returns a result dict suitable for the dashboard.
+    Stateful inference runner.
 
-    All inference exceptions are caught here so the calling loop is never
-    killed by a transient model error (e.g. ORT shape mismatch on model swap).
-    The rule-based fallback is used automatically on any ONNX error.
+    FIX #9: tracks consecutive ONNX failures and disables sess after
+    _ONNX_FAIL_LIMIT failures to stop the ERROR log flood on the QRB2210's
+    eMMC.  Send SIGHUP (or restart the process) after deploying a new model.
     """
-    t0       = time.perf_counter()
-    snapshot = buffer.get_snapshot()
-    latency_snapshot_ms = (time.perf_counter() - t0) * 1000
 
-    if len(snapshot) < WINDOW_SIZE:
-        return {
-            "label":          "buffering",
-            "imbalance_prob": 0.0,
-            "normal_prob":    0.0,
-            "source":         "none",
-            "latency_ms":     0.0,
-            "n_rows":         len(snapshot),
-        }
+    def __init__(self, sess=None):
+        self.sess            = sess
+        self._onnx_fail_count = 0
 
-    t1 = time.perf_counter()
-    try:
-        if sess is not None:
-            result = _onnx_score(sess, snapshot)
-        else:
+    def run_cycle(self, buffer: FastCircularBuffer) -> dict:
+        """
+        Single inference cycle.  Returns a result dict for the dashboard.
+        All inference exceptions are caught so the calling loop is never killed.
+        """
+        t0       = time.perf_counter()
+        snapshot = buffer.get_snapshot()
+        latency_snapshot_ms = (time.perf_counter() - t0) * 1000
+
+        if len(snapshot) < WINDOW_SIZE:
+            return {
+                "label":          "buffering",
+                "imbalance_prob": 0.0,
+                "normal_prob":    0.0,
+                "source":         "none",
+                "latency_ms":     0.0,
+                "n_rows":         len(snapshot),
+            }
+
+        t1 = time.perf_counter()
+        try:
+            if self.sess is not None:
+                result = _onnx_score(self.sess, snapshot)
+                self._onnx_fail_count = 0   # reset on success
+            else:
+                result = _rule_based_score(snapshot)
+        except Exception as exc:
+            self._onnx_fail_count += 1
+            if self._onnx_fail_count >= _ONNX_FAIL_LIMIT:
+                # FIX #9: disable the broken session to stop the log flood.
+                log.critical(
+                    "[Inference] ONNX failed %d consecutive times (%s). "
+                    "Disabling ONNX session — falling back to rule-based permanently. "
+                    "Redeploy model and restart to re-enable.",
+                    self._onnx_fail_count, exc,
+                )
+                self.sess = None
+                self._onnx_fail_count = 0
+            else:
+                log.error(
+                    "[Inference] ONNX cycle failed (%s) — falling back to rule-based "
+                    "(failure %d/%d).",
+                    exc, self._onnx_fail_count, _ONNX_FAIL_LIMIT,
+                )
             result = _rule_based_score(snapshot)
-    except Exception as exc:
-        log.error(
-            "[Inference] cycle failed (%s) — falling back to rule-based.", exc
-        )
-        result = _rule_based_score(snapshot)
 
-    latency_inference_ms = (time.perf_counter() - t1) * 1000
-    result["latency_ms"] = round(latency_snapshot_ms + latency_inference_ms, 2)
-    result["n_rows"]     = WINDOW_SIZE
-    return result
+        latency_inference_ms = (time.perf_counter() - t1) * 1000
+        result["latency_ms"] = round(latency_snapshot_ms + latency_inference_ms, 2)
+        result["n_rows"]     = WINDOW_SIZE
+        return result
 
+
+# ---------------------------------------------------------------------------
+# Module-level convenience functions (used by main.py and capture_session.py)
+# ---------------------------------------------------------------------------
 
 def load_model():
-    """Public entry point for the main pipeline to load the model once at startup."""
+    """Public entry point: load the model once at startup."""
     return _load_model()
+
+
+def run_inference_cycle(buffer: FastCircularBuffer, sess=None) -> dict:
+    """
+    Stateless convenience wrapper retained for backward compatibility.
+    Prefer InferencePipeline.run_cycle() for production use (it tracks
+    persistent ONNX failures and disables the session after _ONNX_FAIL_LIMIT).
+    """
+    pipeline = InferencePipeline(sess=sess)
+    return pipeline.run_cycle(buffer)

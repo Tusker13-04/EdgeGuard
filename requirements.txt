@@ -1,7 +1,11 @@
 # EdgeGuard — Python dependencies
 # Requires Python >= 3.10
-numpy>=1.24
-onnxruntime>=1.17
-fastapi>=0.110
-uvicorn[standard]>=0.29
-websockets>=12.0
+#
+# FIX #13: pin all dependencies to exact tested versions.
+# numpy 2.0 and onnxruntime 1.18 both contain breaking changes that affect
+# this codebase.  Regenerate with: pip-compile requirements.in
+numpy==1.26.4
+onnxruntime==1.17.3
+fastapi==0.110.3
+uvicorn[standard]==0.29.0
+websockets==12.1

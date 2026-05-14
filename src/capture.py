@@ -54,7 +54,6 @@ def save_window_as_csv(window: np.ndarray, label: str, output_dir: str,
     os.makedirs(label_dir, exist_ok=True)
 
     ts_str   = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
-    # Append window_index to prevent filename collisions on fast CPUs
     filepath = os.path.join(label_dir, f"{ts_str}_{window_index:04d}.csv")
 
     with open(filepath, "w", newline="") as f:
@@ -80,12 +79,15 @@ def record_session(
 
     Returns list of saved file paths.
 
-    Raises ValueError if fewer than WINDOW_SIZE rows were captured (nothing
-    to save).  Prints a warning if fewer rows than requested were captured
-    but at least one full window is available.
+    FIX #3/#12: use buffer.total_written (monotonically increasing) instead of
+    buffer.n_rows (saturates at capacity=1600 after the first 4 seconds) as the
+    recording-start watermark.  With n_rows, any session started after warmup
+    computed new_rows = 1600 - 1600 = 0 and captured a single row, silently
+    producing 0–4 windows instead of the expected 60 for a 30-second session.
 
-    FIX: records the buffer write position at the moment recording starts
-    (after the countdown) so that pre-countdown samples are excluded.
+    With total_written, new_rows = total_written_end - total_written_start
+    always equals the exact number of samples produced during the recording,
+    regardless of how many times the ring has wrapped.
     """
     n_rows_needed = duration_seconds * SAMPLE_RATE_HZ
 
@@ -97,15 +99,14 @@ def record_session(
         time.sleep(1)
     print("[Capture] RECORDING", flush=True)
 
-    # Watermark: snapshot write position at the moment recording begins.
-    # Only rows written AFTER this point belong to the current label.
-    record_start_rows = buffer.n_rows
-    record_start_time = time.perf_counter()
+    # FIX #3/#12: watermark using the monotonic total_written counter
+    record_start_written = buffer.total_written
+    record_start_time    = time.perf_counter()
 
     # Poll until the buffer has accumulated n_rows_needed NEW rows since start
     deadline = record_start_time + duration_seconds + 2.0  # +2s grace
     while True:
-        new_rows = buffer.n_rows - record_start_rows
+        new_rows = buffer.total_written - record_start_written
         if new_rows >= n_rows_needed:
             break
         if time.perf_counter() > deadline:
@@ -115,11 +116,12 @@ def record_session(
 
     snap = buffer.get_snapshot()
 
-    # Extract only the rows captured AFTER the countdown
+    # How many rows were written during the recording window?
     new_rows_available = min(
-        buffer.n_rows - record_start_rows,
+        buffer.total_written - record_start_written,
         n_rows_needed,
     )
+    # The most recent new_rows_available rows in the snapshot are the recording
     data = snap[-max(new_rows_available, 1):].astype(np.float32)
 
     if len(data) < n_rows_needed:
@@ -137,7 +139,6 @@ def record_session(
         )
 
     windows = slice_windows(data)
-    # Pass window_index to avoid filename timestamp collisions on fast CPUs
     paths = [
         save_window_as_csv(w, label=label, output_dir=output_dir, window_index=i)
         for i, w in enumerate(windows)

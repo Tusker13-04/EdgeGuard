@@ -4,7 +4,7 @@
 # Architecture:
 #   Thread 1 (ingest) : BridgeReceiver → FastCircularBuffer  [production]
 #                       UDPReceiver    → FastCircularBuffer  [bench/dev only]
-#   Thread 2 (main)   : FastCircularBuffer → run_inference_cycle() → stdout
+#   Thread 2 (main)   : FastCircularBuffer → InferencePipeline → stdout
 #
 # Usage:
 #   python main.py                            # Bridge IPC mode (UNO Q default)
@@ -31,6 +31,7 @@ if sys.version_info < (3, 10):
         "Install Python 3.10+ or use 'python3.10 main.py'."
     )
 
+import math
 import threading
 import argparse
 import time
@@ -42,7 +43,7 @@ from typing import Union
 from src.buffer import FastCircularBuffer
 from src.udp_receiver import UDPReceiver
 from src.bridge_receiver import BridgeReceiver
-from src.inference import run_inference_cycle, load_model, INFERENCE_INTERVAL_S
+from src.inference import InferencePipeline, load_model, INFERENCE_INTERVAL_S
 
 logging.basicConfig(
     level=logging.INFO,
@@ -65,7 +66,6 @@ def run_demo(jsonl_path: str, interval: float) -> None:
     If the file does not exist, a minimal synthetic sequence is generated.
     """
     import os
-    import math
 
     def _load_lines(path):
         if not os.path.isfile(path):
@@ -131,9 +131,9 @@ def run_demo(jsonl_path: str, interval: float) -> None:
 # ---------------------------------------------------------------------------
 
 def run_live(receiver: Union["UDPReceiver", "BridgeReceiver"], interval: float) -> None:
-    buf        = FastCircularBuffer()
+    buf      = FastCircularBuffer()
     stop_event = threading.Event()
-    sess       = load_model()
+    pipeline = InferencePipeline(sess=load_model())  # stateful: tracks ONNX failures
 
     def _shutdown(sig, frame):
         log.info("Shutting down…")
@@ -166,7 +166,7 @@ def run_live(receiver: Union["UDPReceiver", "BridgeReceiver"], interval: float) 
             )
             break
 
-        result = run_inference_cycle(buf, sess=sess)
+        result = pipeline.run_cycle(buf)
 
         telemetry = {
             "ts":             round(time.time(), 3),
@@ -179,7 +179,25 @@ def run_live(receiver: Union["UDPReceiver", "BridgeReceiver"], interval: float) 
             "n_rows":         result["n_rows"],
             "board_temp_c":   receiver.last_temp_c,
         }
-        print(json.dumps(telemetry), flush=True)
+
+        # FIX #11: catch json.dumps failures caused by NaN/Inf float values
+        # (can arrive if BridgeParser validation is bypassed or if rule-based
+        # score produces a non-finite result from corrupted snapshot data).
+        try:
+            print(json.dumps(telemetry), flush=True)
+        except (ValueError, TypeError) as exc:
+            log.error(
+                "[Telemetry] JSON serialisation failed (%s) — sanitising floats.", exc
+            )
+            # Replace any non-finite float with None so the dashboard can
+            # detect and display a data-quality warning
+            for k, v in telemetry.items():
+                if isinstance(v, float) and not math.isfinite(v):
+                    telemetry[k] = None
+            try:
+                print(json.dumps(telemetry), flush=True)
+            except Exception as exc2:
+                log.error("[Telemetry] Sanitised telemetry still not serialisable: %s", exc2)
 
         next_tick += interval
         sleep_time = next_tick - time.perf_counter()
