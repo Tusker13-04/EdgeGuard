@@ -136,18 +136,23 @@ class UDPReceiver(BaseReceiver):
     """
     UDP ingest provider — legacy transport for bench testing without UNO Q hardware.
     Production ingest on Arduino UNO Q uses BridgeReceiver (bridge_receiver.py).
+
+    FIX #6 (UDP injection): binds to 127.0.0.1 by default so only processes
+    on the same host can send packets.  Pass bind_host="" or bind_host="0.0.0.0"
+    explicitly only when LAN access (e.g. physical ESP8266) is required.
     """
 
-    def __init__(self, port: int = 4444):
-        self.port = port
-        self.parser = PacketParser()
+    def __init__(self, port: int = 4444, bind_host: str = "127.0.0.1"):
+        self.port      = port
+        self.bind_host = bind_host
+        self.parser    = PacketParser()
 
     def run(self, buf, stop_event) -> None:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        sock.bind(("", self.port))
+        sock.bind((self.bind_host, self.port))
         sock.settimeout(1.0)
-        log.info("[UDPReceiver] Listening on UDP :%d", self.port)
+        log.info("[UDPReceiver] Listening on UDP %s:%d", self.bind_host or "0.0.0.0", self.port)
         try:
             while not stop_event.is_set():
                 try:

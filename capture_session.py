@@ -77,7 +77,14 @@ if __name__ == "__main__":
     )
     args = ap.parse_args()
 
-    buf        = FastCircularBuffer()
+    # FIX #2 (root cause): size the buffer to hold the full session.
+    # DEFAULT_CAPACITY = 1600 rows = 4 s at 400 Hz.  A 30-second session needs
+    # 12 000 rows.  Without this, get_snapshot() returns at most 1 600 rows and
+    # data = snap[-new_rows_available:] silently clips to 1 600 even though
+    # new_rows_available is 12 000, producing only ~8 windows instead of 60.
+    required_capacity = args.duration * SAMPLE_RATE_HZ
+    buf = FastCircularBuffer(capacity=max(DEFAULT_CAPACITY, required_capacity))
+
     stop_event = threading.Event()
 
     if args.mode == "udp":

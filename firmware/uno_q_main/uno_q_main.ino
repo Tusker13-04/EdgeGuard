@@ -27,7 +27,7 @@
 
 // ── Sampling config ───────────────────────────────────────────────────────
 // LIS3DH ODR = 400 Hz
-// FIFO watermark = 25 samples → ISR fires every ~62.5 ms
+// FIFO watermark = 25 samples -> ISR fires every ~62.5 ms
 #define FIFO_WATERMARK  25
 
 // ── I2C timeout (STM32 HAL) ───────────────────────────────────────────────
@@ -54,7 +54,7 @@ OneWire            oneWire(ONE_WIRE_PIN);
 DallasTemperature  tempSensor(&oneWire);
 SensorPayload      batch[FIFO_WATERMARK];
 uint32_t           seq_counter      = 0;
-// FIX: volatile uint8_t instead of volatile bool for cleaner atomic semantics.
+// volatile uint8_t instead of volatile bool for cleaner atomic semantics.
 // Cortex-M33 load/store of uint8_t is single-instruction (atomic on aligned addr).
 volatile uint8_t   fifo_ready       = 0;
 float              last_temp_c      = 25.0f;
@@ -73,10 +73,10 @@ void onFifoWatermark() {
 void setup() {
     Serial.begin(115200);
 
-    // FIX: start IWDG with a 4-second window before any blocking I/O.
+    // Start IWDG before any blocking I/O.
     // Bridge.begin() and Wire I2C init can block; the watchdog ensures
     // the device self-recovers if either call hangs permanently.
-    IWatchdog.begin(4000000);  // 4,000,000 μs = 4 s
+    IWatchdog.begin(4000000);  // 4,000,000 us = 4 s
 
     // Initialize Bridge for MPU communication
     Bridge.begin();
@@ -84,21 +84,20 @@ void setup() {
 
     Wire.begin();
     Wire.setClock(400000);
-    // FIX: set I2C timeout to prevent clock-stretch deadlock.
+    // Set I2C timeout to prevent clock-stretch deadlock.
     // STM32duino TwoWire exposes setTimeout() (milliseconds).
     Wire.setTimeout(I2C_TIMEOUT_MS);
 
     if (!lis.begin(LIS3DH_ADDR)) {
         Serial.println("[EdgeGuard] FATAL: LIS3DH not found.");
         // Let the IWDG reset the device rather than spinning indefinitely.
-        // This allows the hardware watchdog to trigger a clean reboot.
-        while (true) { /* IWDG will fire in ≤4 s */ }
+        while (true) { /* IWDG will fire in <=4 s */ }
     }
 
     lis.setDataRate(LIS3DH_DATARATE_400_HZ);
     lis.setRange(LIS3DH_RANGE_8_G);
 
-    // Enable FIFO stream mode with watermark interrupt (matching original main.cpp)
+    // Enable FIFO stream mode with watermark interrupt
     uint8_t ctrl5 = lis.readRegister8(LIS3DH_REG_CTRL5);
     lis.writeRegister8(LIS3DH_REG_CTRL5, ctrl5 | 0x40);
     lis.writeRegister8(LIS3DH_REG_FIFOCTRL,
@@ -127,20 +126,17 @@ void loop() {
     if (temp_req_pending && (millis() - temp_req_ms >= DS18B20_CONV_MS)) {
         float t = tempSensor.getTempCByIndex(0);
         if (t > -100.0f) last_temp_c = t;
-        // FIX: was missing — temp_req_pending was never cleared after reading,
-        // causing requestTemperatures() to be called on every loop() iteration
-        // after the first 750 ms, thrashing the 1-Wire bus continuously.
         temp_req_pending = false;
         tempSensor.requestTemperatures();
         temp_req_pending = true;
         temp_req_ms      = millis();
     }
 
-    // ── FIX: Atomic test-and-clear of fifo_ready ISR flag ─────────────────
+    // ── Atomic test-and-clear of fifo_ready ISR flag ───────────────────────
     // On Cortex-M33 a non-atomic test-then-clear creates a race: if the ISR
     // fires between the load and the store, the second notification is lost
     // (missed batch, invisible data gap). __disable_irq/__enable_irq provide
-    // the required critical section without disabling the SysTick/FreeRTOS.
+    // the required critical section without disabling SysTick/FreeRTOS.
     __disable_irq();
     uint8_t batch_ready = fifo_ready;
     fifo_ready = 0;
@@ -153,7 +149,7 @@ void loop() {
         return;
     }
 
-    // ── FIX: FIFO overflow check before draining ───────────────────────────
+    // ── FIFO overflow check before draining ────────────────────────────────
     // LIS3DH FIFO_SRC_REG bit 6 (OVR) indicates a sample was overwritten
     // before being read. If set, reset FIFO and discard the contaminated batch.
     uint8_t fifo_src = lis.readRegister8(LIS3DH_REG_FIFOSRC);
@@ -161,7 +157,7 @@ void loop() {
         fifo_overflows++;
         Serial.print("[EdgeGuard] WARN: FIFO overflow #");
         Serial.println(fifo_overflows);
-        // Reset FIFO: bypass mode momentarily → back to stream mode
+        // Reset FIFO: bypass mode momentarily -> back to stream mode
         lis.writeRegister8(LIS3DH_REG_FIFOCTRL, 0x00);
         lis.writeRegister8(LIS3DH_REG_FIFOCTRL,
             (0x01 << 6) | (FIFO_WATERMARK & 0x1F));
@@ -171,15 +167,24 @@ void loop() {
 
     // ── Drain FIFO and fill batch array ───────────────────────────────────
     for (uint8_t i = 0; i < FIFO_WATERMARK; i++) {
-        // FIX: REMOVED standalone lis.read() that appeared here before.
-        // getEvent() calls lis.read() internally as its first operation.
-        // The previous code popped TWO FIFO entries per loop iteration:
-        //   Iteration:  lis.read()       → discarded (raw registers overwritten)
-        //               lis.getEvent()   → popped next sample, used result
-        // This silently halved throughput to ~200 Hz and left phantom
-        // sequence-counter gaps that inflated the Pi-side drop_rate_pct metric.
-        sensors_event_t event;
-        lis.getEvent(&event);  // ← single FIFO pop; read() called internally
+        // FIX #5: value-initialize the event struct so all fields are zero
+        // before the I2C read.  Without this, a failed getEvent() leaves stale
+        // stack data in the struct which silently flows into the batch.
+        // C++ value-initialization (event{}) zero-initialises all POD members.
+        sensors_event_t event{};
+
+        // FIX #5: check the return value of getEvent().
+        // If the read fails (I2C NACK, timeout), fill NAN so the Python-side
+        // NaN filter can reject this sample rather than ingesting garbage.
+        if (!lis.getEvent(&event)) {
+            batch[i].timestamp_us = micros();
+            batch[i].sequence_id  = seq_counter++;
+            batch[i].accel_x      = NAN;
+            batch[i].accel_y      = NAN;
+            batch[i].accel_z      = NAN;
+            batch[i].board_temp   = NAN;
+            continue;
+        }
 
         batch[i].timestamp_us = micros();
         batch[i].sequence_id  = seq_counter++;

@@ -25,14 +25,13 @@ log = logging.getLogger(__name__)
 MODEL_PATH  = os.path.join(os.path.dirname(__file__), "..", "model", "edgeguard.onnx")
 CLASS_NAMES = ["normal", "imbalance"]
 
-# FIX #9: raised from 12.0 to 40.0 m/s².
-# At LIS3DH ±8g range (78.4 m/s² full scale), 12.0 m/s² (~1.2g) is below
+# At LIS3DH +/-8g range (78.4 m/s^2 full scale), 12.0 m/s^2 (~1.2g) is below
 # typical idle motor vibration and produces near-100% false positives.
-# 40.0 m/s² (~4g) is a calibrated starting point for imbalance detection;
+# 40.0 m/s^2 (~4g) is a calibrated starting point for imbalance detection;
 # adjust based on baseline vibration measurements for the specific motor.
 RMS_ANOMALY_THRESHOLD = 40.0
 
-# Max consecutive ONNX failures before the session is disabled (FIX #9)
+# Max consecutive ONNX failures before the session is disabled
 _ONNX_FAIL_LIMIT = 5
 
 # Inference runs every INFERENCE_INTERVAL_S seconds
@@ -62,10 +61,13 @@ def _load_model():
 def _rule_based_score(snapshot: np.ndarray) -> dict:
     """
     Fallback when no ONNX model is available.
-    Uses ACCEL_COLS constant (slice(0,3)) so column layout is documented
-    centrally in buffer.py and fails loudly if N_FEATURES ever changes.
+
+    FIX #4 (fallback dilution): slice snapshot[-WINDOW_SIZE:] so RMS is
+    computed over the same 0.5-second window used by the ONNX path.
+    Previously snapshot[:] was passed, averaging a spike across the full
+    4-second history and suppressing it below the detection threshold.
     """
-    xyz   = snapshot[:, ACCEL_COLS]   # accel_x, accel_y, accel_z
+    xyz   = snapshot[-WINDOW_SIZE:, ACCEL_COLS]   # (200, 3) — most recent 0.5 s
     rms   = float(np.sqrt(np.mean(xyz ** 2)))
     score = min(1.0, rms / RMS_ANOMALY_THRESHOLD)
     label = CLASS_NAMES[1] if score > 0.5 else CLASS_NAMES[0]
@@ -100,13 +102,13 @@ class InferencePipeline:
     """
     Stateful inference runner.
 
-    FIX #9: tracks consecutive ONNX failures and disables sess after
-    _ONNX_FAIL_LIMIT failures to stop the ERROR log flood on the QRB2210's
-    eMMC.  Send SIGHUP (or restart the process) after deploying a new model.
+    Tracks consecutive ONNX failures and disables sess after _ONNX_FAIL_LIMIT
+    failures to stop the ERROR log flood on the QRB2210's eMMC.
+    Send SIGHUP (or restart the process) after deploying a new model.
     """
 
     def __init__(self, sess=None):
-        self.sess            = sess
+        self.sess             = sess
         self._onnx_fail_count = 0
 
     def run_cycle(self, buffer: FastCircularBuffer) -> dict:
@@ -138,7 +140,6 @@ class InferencePipeline:
         except Exception as exc:
             self._onnx_fail_count += 1
             if self._onnx_fail_count >= _ONNX_FAIL_LIMIT:
-                # FIX #9: disable the broken session to stop the log flood.
                 log.critical(
                     "[Inference] ONNX failed %d consecutive times (%s). "
                     "Disabling ONNX session — falling back to rule-based permanently. "
@@ -173,8 +174,7 @@ def load_model():
 def run_inference_cycle(buffer: FastCircularBuffer, sess=None) -> dict:
     """
     Stateless convenience wrapper retained for backward compatibility.
-    Prefer InferencePipeline.run_cycle() for production use (it tracks
-    persistent ONNX failures and disables the session after _ONNX_FAIL_LIMIT).
+    Prefer InferencePipeline.run_cycle() for production use.
     """
     pipeline = InferencePipeline(sess=sess)
     return pipeline.run_cycle(buffer)
