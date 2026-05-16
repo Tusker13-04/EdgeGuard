@@ -28,7 +28,7 @@ using the standard msgpack-rpc notification format `[2, method, params]`.
 │  LIS3DH  I²C 400 kHz        │                          │  arduino-router daemon           │
 │  ├─ 3-axis accel @ 400 Hz   │                          │  └─ /var/run/arduino-router.sock │
 │  ├─ ±8 g range              │                          │                                  │
-│  └─ FIFO watermark 100 smp  │                          │  Thread 1 (BridgeReceiver)       │
+│  └─ FIFO watermark 25 smp   │                          │  Thread 1 (BridgeReceiver)       │
 │                             │                          │  ├─ Unix socket ingest           │
 │  DS18B20  1-Wire async      │                          │  └─ FastCircularBuffer.add_row() │
 │  └─ board temp ±0.5 °C      │                          │                                  │
@@ -47,10 +47,10 @@ using the standard msgpack-rpc notification format `[2, method, params]`.
 | Layer | Mechanism | Details |
 |---|---|---|
 | `FastCircularBuffer.add_row()` | `threading.Lock` | Held briefly per row write |
-| `FastCircularBuffer.get_snapshot()` | `threading.Lock` | Slice copies taken under lock; `np.concatenate` executed outside lock to prevent ingest starvation |
+| `FastCircularBuffer.get_snapshot()` | `threading.Lock` | Scalar indices copied under lock; `np.concatenate` executes outside lock to prevent ingest starvation |
 | `BridgeReceiver._handle_batch()` | `threading.Lock` | Single acquisition per batch for all counter/state updates |
 | Firmware acquisition thread | Zephyr counting semaphore | `k_sem_init(&fifo_sem, 0, 4)` — buffers up to 4 pending ISR signals, preventing IRQ loss under CPU load |
-| Firmware watchdog | IWDG owned by `acq_thread_func` | Reloaded after every 100-sample batch (~250 ms); `loop()` starvation deliberately triggers reset |
+| Firmware watchdog | IWDG reloaded by `acq_thread_func` | Reloaded after every 100-sample batch (~250 ms); `loop()` starvation deliberately triggers reset |
 
 **Payload struct** (24 bytes, packed — must match `src/schema.py`):
 ```c
@@ -69,17 +69,21 @@ static_assert(sizeof(SensorPayload) == 24);
 
 | Constant | Value | Defined in |
 |---|---|---|
-| FIFO_WATERMARK | 100 samples | `firmware/uno_q_main/config.h` |
+| SAMPLES_PER_IRQ | 25 samples | `firmware/uno_q_main/config.h` — hardware FIFO watermark register value; ISR fires every 25 samples |
+| FIFO_WATERMARK | 100 samples | `firmware/uno_q_main/config.h` — firmware batch accumulation target (4 × SAMPLES_PER_IRQ); **not** the hardware FIFO depth |
 | BATCH_PACKETS | 100 packets | `src/schema.py` |
 | BATCH_SIZE | 2 400 bytes | `src/schema.py` (100 × 24) |
 | SAMPLE_RATE_HZ | 400 Hz | `src/schema.py` |
 | WINDOW_SIZE | 200 samples (0.5 s) | `src/schema.py` |
 | INFERENCE_INTERVAL_S | 0.5 s (2 Hz) | `src/inference.py` |
 
-> **Note on FIFO strategy:** The LIS3DH hardware FIFO is 32 levels. The firmware sets a
-> watermark of 25 and fires the ISR every 25 samples; the acquisition thread accumulates
-> 4 ISR events before transmitting a 100-sample batch via `Bridge.notify`. This is
-> consistent with `config.h FIFO_WATERMARK = 100` and `schema.py BATCH_PACKETS = 100`.
+> **Note on FIFO strategy:** The LIS3DH hardware FIFO is 32 levels deep.
+> `SAMPLES_PER_IRQ = 25` is the value written to the hardware watermark register —
+> the ISR fires every 25 samples. `FIFO_WATERMARK = 100` is a **firmware-side batch
+> accumulation target**: the acquisition thread counts 4 ISR events (4 × 25 = 100
+> samples) before calling `Bridge.notify`. These two constants serve different
+> purposes; `FIFO_WATERMARK` does **not** represent the hardware FIFO depth or the
+> hardware watermark level.
 
 ---
 
@@ -194,7 +198,7 @@ uvicorn dashboard.server:app --host 0.0.0.0 --port 8080
 | `EDGEGUARD_DEMO` | *(unset)* | Path to `.jsonl` replay file; activates demo mode |
 | `EDGEGUARD_BRIDGE_FIFO` | *(unset)* | Override Bridge IPC socket path |
 | `EDGEGUARD_MAX_CLIENTS` | `10` | Max simultaneous WebSocket clients |
-| `EDGEGUARD_ALLOWED_ORIGINS` | *(any)* | Comma-separated allowed WebSocket origins. Add `"null"` if connecting from a `file://` page or sandboxed iframe during local development. |
+| `EDGEGUARD_ALLOWED_ORIGINS` | *(any)* | Comma-separated allowed WebSocket origins |
 | `EDGEGUARD_RMS_THRESHOLD` | `40.0` | RMS anomaly threshold in m/s². Override to calibrate for your specific motor. |
 
 ### 6. Deploy ONNX model (after Edge Impulse training)
@@ -206,7 +210,7 @@ cp edgeguard.onnx model/edgeguard.onnx
 ```
 
 The pipeline falls back to RMS-based anomaly detection until a model is present.
-After ONNX failures exceed 5 consecutive cycles, the session is permanently
+After ONNX failures exceed 5 consecutive cycles, the ONNX session is permanently
 disabled until process restart.
 
 ---
@@ -257,7 +261,7 @@ EdgeGuard/
 ├── firmware/
 │   ├── platformio.ini             # PlatformIO build (env:uno_q)
 │   └── uno_q_main/
-│       ├── config.h               # Hardware constants (FIFO_WATERMARK, pins)
+│       ├── config.h               # Hardware constants (SAMPLES_PER_IRQ, FIFO_WATERMARK, pins)
 │       └── uno_q_main.ino         # STM32U585 acquisition firmware (Zephyr RTOS)
 ├── src/                           # MPU Python pipeline
 │   ├── schema.py                  # Shared constants + BaseReceiver ABC
@@ -277,16 +281,6 @@ EdgeGuard/
 │   ├── test_inference.py
 │   ├── test_bridge_receiver.py
 │   └── test_udp_receiver.py
-├── docs/
-│   └── superpowers/
-│       ├── specs/
-│       │   ├── 2026-05-09-edgeguard-prototype-design.md
-│       │   ├── 2026-05-10-csv-capture-design.md
-│       │   ├── 2026-05-13-uno-q-migration-design.md
-│       │   ├── 2026-05-16-architecture-reference.md
-│       │   ├── 2026-05-16-architecture-flaw-report.md   ← initial audit
-│       │   └── 2026-05-16-recheck-post-fix.md           ← post-fix verification
-│       └── future-ideas.md
 ├── data/
 │   └── raw/                       # Captured CSVs (gitignored contents)
 │       ├── normal/
@@ -319,8 +313,10 @@ pytest tests/ -v
 - **DS18B20** accurate to ±0.5 °C; used for motor-case thermal trend only, not
   precision measurement.
 - **ONNX model slot** is wired but empty until Edge Impulse training is complete.
-  The rule-based RMS fallback runs automatically until then. After deployment, restart
-  `main.py` to load the new model — live SIGHUP reload is not implemented.
+  The rule-based RMS fallback runs automatically until then. After ONNX failures
+  exceed 5 consecutive cycles, the session is permanently disabled until process
+  restart. After deployment, restart `main.py` to load the new model — live SIGHUP
+  reload is not implemented.
 - **arduino-router dependency**: `BridgeReceiver` requires the `arduino-router` daemon
   to be running on the MPU and listening at `/var/run/arduino-router.sock`. If the
   daemon is not active, the receiver will log connection errors and retry every 2 s.
@@ -328,6 +324,3 @@ pytest tests/ -v
   before running.
 - **UDP mode** binds to `127.0.0.1` by default. Pass `bind_host=""` only when
   receiving packets from external hardware (e.g. bench ESP8266).
-- **WebSocket origin restriction**: when `EDGEGUARD_ALLOWED_ORIGINS` is set, include
-  `"null"` to allow connections from `file://` pages or sandboxed iframes during
-  local development.
