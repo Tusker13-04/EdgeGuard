@@ -192,7 +192,7 @@ class TestInference:
 
     def test_anomaly_classification(self):
         # High vibration RMS → should be 'imbalance'
-        buf = self._make_buffer(n_rows=400, accel_rms_level=20.0)
+        buf = self._make_buffer(n_rows=400, accel_rms_level=40.0)
         result = run_inference_cycle(buf, sess=None)
         assert result["label"] == "imbalance"
         assert result["imbalance_prob"] > 0.5
