@@ -42,6 +42,16 @@ using the standard msgpack-rpc notification format `[2, method, params]`.
                                                          └─ main.py subprocess stdout ─────┘
 ```
 
+### Thread-Safety Design
+
+| Layer | Mechanism | Details |
+|---|---|---|
+| `FastCircularBuffer.add_row()` | `threading.Lock` | Held briefly per row write |
+| `FastCircularBuffer.get_snapshot()` | `threading.Lock` | Slice copies taken under lock; `np.concatenate` executed outside lock to prevent ingest starvation |
+| `BridgeReceiver._handle_batch()` | `threading.Lock` | Single acquisition per batch for all counter/state updates |
+| Firmware acquisition thread | Zephyr counting semaphore | `k_sem_init(&fifo_sem, 0, 4)` — buffers up to 4 pending ISR signals, preventing IRQ loss under CPU load |
+| Firmware watchdog | IWDG owned by `acq_thread_func` | Reloaded after every 100-sample batch (~250 ms); `loop()` starvation deliberately triggers reset |
+
 **Payload struct** (24 bytes, packed — must match `src/schema.py`):
 ```c
 struct __attribute__((packed)) SensorPayload {
@@ -106,12 +116,12 @@ pio run -e uno_q --target upload
 
 **Option B — Arduino IDE:**
 1. Open `firmware/uno_q_main/uno_q_main.ino`.
-2. Install board support: STM32duino (STM32U585AI-UNO or fallback `nucleo_u575zi_q`).
-3. Install libraries: `Adafruit LIS3DH`, `Adafruit Unified Sensor`, `OneWire`,
-   `DallasTemperature`, `Arduino_RouterBridge`.
-4. Select board, upload.
+2. Select **Arduino UNO Q** board.
+3. Install required libraries: `Adafruit LIS3DH`, `Adafruit Unified Sensor`,
+   `OneWire`, `DallasTemperature`, `Arduino_RouterBridge`.
+4. Upload.
 
-### 2. MPU Setup (Debian Linux on QRB2210)
+### 2. MPU Setup (QRB2210)
 
 Connect via SSH or the UNO Q serial console.
 
@@ -165,8 +175,9 @@ python capture_session.py --mode udp --label imbalance --duration 30
 # Upload these to Edge Impulse for training.
 ```
 
-The buffer is automatically sized to `duration_s × 400` rows so no data is lost
-regardless of session length.
+The buffer uses a **monotonic `total_written` counter** as the recording-start
+watermark, so the captured window is always exactly `duration_s × 400` rows,
+regardless of how many times the 4-second ring has wrapped before the session starts.
 
 ### 5. Dashboard
 
@@ -181,9 +192,10 @@ uvicorn dashboard.server:app --host 0.0.0.0 --port 8080
 |---|---|---|
 | `EDGEGUARD_MODE` | `bridge` | Ingest mode passed to `main.py` (`bridge` or `udp`) |
 | `EDGEGUARD_DEMO` | *(unset)* | Path to `.jsonl` replay file; activates demo mode |
-| `EDGEGUARD_BRIDGE_FIFO` | *(unset)* | Override Bridge IPC socket/FIFO path |
+| `EDGEGUARD_BRIDGE_FIFO` | *(unset)* | Override Bridge IPC socket path |
 | `EDGEGUARD_MAX_CLIENTS` | `10` | Max simultaneous WebSocket clients |
-| `EDGEGUARD_ALLOWED_ORIGINS` | *(any)* | Comma-separated allowed WebSocket origins |
+| `EDGEGUARD_ALLOWED_ORIGINS` | *(any)* | Comma-separated allowed WebSocket origins. Add `"null"` if connecting from a `file://` page or sandboxed iframe during local development. |
+| `EDGEGUARD_RMS_THRESHOLD` | `40.0` | RMS anomaly threshold in m/s². Override to calibrate for your specific motor. |
 
 ### 6. Deploy ONNX model (after Edge Impulse training)
 
@@ -271,7 +283,9 @@ EdgeGuard/
 │       │   ├── 2026-05-09-edgeguard-prototype-design.md
 │       │   ├── 2026-05-10-csv-capture-design.md
 │       │   ├── 2026-05-13-uno-q-migration-design.md
-│       │   └── 2026-05-16-architecture-reference.md  ← current state
+│       │   ├── 2026-05-16-architecture-reference.md
+│       │   ├── 2026-05-16-architecture-flaw-report.md   ← initial audit
+│       │   └── 2026-05-16-recheck-post-fix.md           ← post-fix verification
 │       └── future-ideas.md
 ├── data/
 │   └── raw/                       # Captured CSVs (gitignored contents)
@@ -298,9 +312,10 @@ pytest tests/ -v
 
 ## Limitations
 
-- **RMS threshold** (`RMS_ANOMALY_THRESHOLD = 40.0 m/s²`, ~4 g) is a calibration
-  starting point. Calibrate against baseline vibration for your specific motor before
-  relying on the rule-based fallback in production.
+- **RMS threshold** (`EDGEGUARD_RMS_THRESHOLD`, default `40.0 m/s²` / ~4 g) is a
+  calibration starting point. Set via environment variable and calibrate against
+  baseline vibration for your specific motor before relying on the rule-based fallback
+  in production.
 - **DS18B20** accurate to ±0.5 °C; used for motor-case thermal trend only, not
   precision measurement.
 - **ONNX model slot** is wired but empty until Edge Impulse training is complete.
@@ -313,3 +328,6 @@ pytest tests/ -v
   before running.
 - **UDP mode** binds to `127.0.0.1` by default. Pass `bind_host=""` only when
   receiving packets from external hardware (e.g. bench ESP8266).
+- **WebSocket origin restriction**: when `EDGEGUARD_ALLOWED_ORIGINS` is set, include
+  `"null"` to allow connections from `file://` pages or sandboxed iframes during
+  local development.
