@@ -65,7 +65,7 @@ void acq_thread_func(void *p1, void *p2, void *p3) {
         if (fifo_src & 0x40) {
             // Reset FIFO on overflow and discard current partial batch
             lis.writeRegister8(LIS3DH_REG_FIFOCTRL, 0x00);
-            lis.writeRegister8(LIS3DH_REG_FIFOCTRL, (0x01 << 6) | (SAMPLES_PER_IRQ & 0x1F));
+            lis.writeRegister8(LIS3DH_REG_FIFOCTRL, (0x02 << 6) | (SAMPLES_PER_IRQ & 0x1F));
             batch_offset = 0;
             continue;
         }
@@ -132,7 +132,7 @@ void setup() {
     // FIFO setup
     uint8_t ctrl5 = lis.readRegister8(LIS3DH_REG_CTRL5);
     lis.writeRegister8(LIS3DH_REG_CTRL5, ctrl5 | 0x40);
-    lis.writeRegister8(LIS3DH_REG_FIFOCTRL, (0x01 << 6) | (SAMPLES_PER_IRQ & 0x1F));
+    lis.writeRegister8(LIS3DH_REG_FIFOCTRL, (0x02 << 6) | (SAMPLES_PER_IRQ & 0x1F));
 
     uint8_t ctrl3 = lis.readRegister8(LIS3DH_REG_CTRL3);
     lis.writeRegister8(LIS3DH_REG_CTRL3, ctrl3 | 0x04);
