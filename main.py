@@ -188,6 +188,6 @@ if __name__ == "__main__":
                 or os.environ.get("EDGEGUARD_BRIDGE_FIFO")
                 or "/run/arduino/sensor_batch"
             )
-            recv = BridgeReceiver(fifo_path=fifo_path)
+            recv = BridgeReceiver(socket_path=fifo_path)
 
         run_live(receiver=recv, interval=args.interval)

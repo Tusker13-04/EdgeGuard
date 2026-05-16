@@ -72,9 +72,14 @@ class FastCircularBuffer:
         with self._lock:
             if not self._is_full:
                 return self._buf[:self._write_idx].copy()
+            
+            wi = self._write_idx
+            # Copy slices under lock to prevent torn reads, but leave
+            # expensive concatenation for outside the lock.
+            tail = self._buf[wi:].copy()
+            head = self._buf[:wi].copy()
 
-            # Unwrap ring: tail (oldest) ++ head (newest)
-            return np.concatenate((self._buf[self._write_idx:], self._buf[:self._write_idx]), axis=0)
+        return np.concatenate((tail, head), axis=0)
 
     @property
     def n_rows(self) -> int:

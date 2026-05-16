@@ -4,6 +4,19 @@
 # Spawns main.py as a subprocess, reads its stdout (one JSON line per
 # inference cycle), and broadcasts each message to all connected
 # WebSocket clients.
+#
+# Usage:
+#   uvicorn dashboard.server:app --host 0.0.0.0 --port 8080
+#
+# Environment variables:
+#   EDGEGUARD_MODE            'bridge' (default) or 'udp'
+#   EDGEGUARD_DEMO            Path to a .jsonl replay file (activates demo mode)
+#   EDGEGUARD_BRIDGE_FIFO     Override Bridge IPC FIFO path
+#   EDGEGUARD_MAX_CLIENTS     Max simultaneous WebSocket clients (default: 10)
+#   EDGEGUARD_ALLOWED_ORIGINS Comma-separated allowed WS origins (empty = any)
+#                             Note: browsers may send 'null' for local file://
+#
+# Then open http://<pi-ip>:8080 in a browser.
 
 import asyncio
 import json

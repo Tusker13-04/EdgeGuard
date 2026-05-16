@@ -160,10 +160,10 @@ void setup() {
     IWatchdog.reload();
     Serial.println("[EdgeGuard] UNO Q Booted. High-throughput acquisition thread running.");
 }
-
 // ── loop ──────────────────────────────────────────────────────────────────
 void loop() {
-    // loop() handles lower priority tasks like temperature updates
+    // Watchdog is reloaded by acq_thread_func() after each batch.
+    // Do NOT add IWatchdog.reload() here — loop() starvation must trigger IWDG.
     if (temp_req_pending && (millis() - temp_req_ms >= DS18B20_CONV_MS)) {
         float t = tempSensor.getTempCByIndex(0);
         if (t > -100.0f) last_temp_c = t;
@@ -172,7 +172,6 @@ void loop() {
         temp_req_pending = true;
         temp_req_ms      = millis();
     }
-    
-    IWatchdog.reload();
+
     delay(10);
 }
