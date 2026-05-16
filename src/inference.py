@@ -17,8 +17,7 @@ import logging
 import numpy as np
 
 from src.buffer import FastCircularBuffer, ACCEL_COLS
-from src.udp_receiver import N_FEATURES
-from src.capture import WINDOW_SIZE, SAMPLE_RATE_HZ
+from src.schema import N_FEATURES, WINDOW_SIZE, SAMPLE_RATE_HZ
 
 log = logging.getLogger(__name__)
 

@@ -18,7 +18,7 @@
 import numpy as np
 import threading
 
-from src.udp_receiver import N_FEATURES  # 4
+from src.schema import N_FEATURES  # 4
 
 # Default capacity: 4 seconds at 400 Hz = 1600 rows
 DEFAULT_CAPACITY = 1600

@@ -19,17 +19,7 @@ import time
 import numpy as np
 from datetime import datetime, timezone
 
-from src.udp_receiver import FEATURE_COLS, N_FEATURES
-
-# Sample rate must match LIS3DH ODR in firmware (LIS3DH_DATARATE_400_HZ)
-SAMPLE_RATE_HZ = 400
-
-# Window: 0.5 seconds of data at 400 Hz
-WINDOW_SIZE    = 200  # rows
-
-# Inter-row interval in milliseconds (for Edge Impulse timestamp column)
-ROW_INTERVAL_MS = 1000.0 / SAMPLE_RATE_HZ  # 2.5 ms
-
+from src.schema import FEATURE_COLS, N_FEATURES, SAMPLE_RATE_HZ, WINDOW_SIZE, ROW_INTERVAL_MS
 
 def slice_windows(data: np.ndarray, window_size: int = WINDOW_SIZE):
     """Split a 2D array into non-overlapping windows of window_size rows."""

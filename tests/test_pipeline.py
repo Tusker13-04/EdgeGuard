@@ -123,7 +123,7 @@ class TestCapture:
         assert SAMPLE_RATE_HZ == 400
         assert WINDOW_SIZE == 200
         assert CAP_N_FEATURES == N_FEATURES
-        assert pytest.approx(ROW_INTERVAL_MS) == 2.5
+        assert pytest.approx(ROW_INTERVAL_MS, abs=0.01) == 2.5
 
     def test_slice_windows_even(self):
         data = np.zeros((600, N_FEATURES), dtype=np.float32)

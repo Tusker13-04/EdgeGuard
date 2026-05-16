@@ -2,9 +2,8 @@
 # EdgeGuard live inference pipeline — runs on Arduino UNO Q (Qualcomm QRB2210 MPU).
 #
 # Architecture:
-#   Thread 1 (ingest) : BridgeReceiver → FastCircularBuffer  [production]
-#                       UDPReceiver    → FastCircularBuffer  [bench/dev only]
-#   Thread 2 (main)   : FastCircularBuffer → InferencePipeline → stdout
+#   Ingest Thread  : BridgeReceiver/UDPReceiver → FastCircularBuffer
+#   Main Thread    : PipelineEngine.run_inference_loop() → stdout
 #
 # Usage:
 #   python main.py                            # Bridge IPC mode (UNO Q default)
@@ -12,9 +11,6 @@
 #   python main.py --mode udp                 # legacy UDP mode (bench/dev only)
 #   python main.py --demo data/demo.jsonl     # replay a recorded telemetry file
 #   python main.py --port 4444 --interval 0.5
-#
-# Environment variables:
-#   EDGEGUARD_BRIDGE_FIFO  Override default Bridge IPC FIFO path
 #
 # Telemetry output (one JSON line per inference cycle, to stdout):
 #   {"ts": ..., "label": "normal", "imbalance_prob": 0.02,
@@ -40,10 +36,10 @@ import logging
 import signal
 from typing import Union
 
-from src.buffer import FastCircularBuffer
 from src.udp_receiver import UDPReceiver
 from src.bridge_receiver import BridgeReceiver
-from src.inference import InferencePipeline, load_model, INFERENCE_INTERVAL_S
+from src.engine import PipelineEngine, format_telemetry_json
+from src.inference import INFERENCE_INTERVAL_S
 
 logging.basicConfig(
     level=logging.INFO,
@@ -63,7 +59,6 @@ def run_demo(jsonl_path: str, interval: float) -> None:
     Replay a pre-recorded .jsonl telemetry file in a loop.
     Each line is re-emitted to stdout at the original cadence so the
     dashboard behaves identically to live mode.
-    If the file does not exist, a minimal synthetic sequence is generated.
     """
     import os
 
@@ -130,92 +125,26 @@ def run_demo(jsonl_path: str, interval: float) -> None:
 # LIVE MODE
 # ---------------------------------------------------------------------------
 
-def run_live(receiver: Union["UDPReceiver", "BridgeReceiver"], interval: float) -> None:
-    buf      = FastCircularBuffer()
-    stop_event = threading.Event()
-    pipeline = InferencePipeline(sess=load_model())  # stateful: tracks ONNX failures
+def run_live(receiver: Union[UDPReceiver, BridgeReceiver], interval: float) -> None:
+    engine = PipelineEngine(receiver=receiver, interval=interval)
 
     def _shutdown(sig, frame):
-        log.info("Shutting down…")
-        stop_event.set()
+        engine.stop()
 
     signal.signal(signal.SIGINT,  _shutdown)
     signal.signal(signal.SIGTERM, _shutdown)
 
-    _ingest_exc: list = [None]
+    engine.start()
 
-    def _ingest_guarded():
-        try:
-            receiver.run(buf, stop_event)
-        except Exception as exc:
-            _ingest_exc[0] = exc
-            stop_event.set()
+    try:
+        for telemetry in engine.run_inference_loop():
+            print(format_telemetry_json(telemetry), flush=True)
+    except Exception as exc:
+        log.critical("[Main] Pipeline crashed: %s", exc)
+        engine.stop()
+        raise
 
-    ingest = threading.Thread(target=_ingest_guarded, daemon=True)
-    ingest.start()
-    log.info("Inference loop starting at %.1fHz (mode: %s)",
-             1.0 / interval, receiver.__class__.__name__)
-
-    next_tick = time.perf_counter()
-
-    while not stop_event.is_set():
-        if _ingest_exc[0] is not None:
-            log.critical(
-                "[Watchdog] Ingest thread died with: %s — shutting down.",
-                _ingest_exc[0],
-            )
-            break
-
-        result = pipeline.run_cycle(buf)
-
-        telemetry = {
-            "ts":             round(time.time(), 3),
-            "label":          result["label"],
-            "imbalance_prob": result["imbalance_prob"],
-            "normal_prob":    result["normal_prob"],
-            "source":         result["source"],
-            "latency_ms":     result["latency_ms"],
-            "drop_rate_pct":  round(receiver.drop_rate_pct, 2),
-            "n_rows":         result["n_rows"],
-            "board_temp_c":   receiver.last_temp_c,
-        }
-
-        # FIX #11: catch json.dumps failures caused by NaN/Inf float values
-        # (can arrive if BridgeParser validation is bypassed or if rule-based
-        # score produces a non-finite result from corrupted snapshot data).
-        try:
-            print(json.dumps(telemetry), flush=True)
-        except (ValueError, TypeError) as exc:
-            log.error(
-                "[Telemetry] JSON serialisation failed (%s) — sanitising floats.", exc
-            )
-            # Replace any non-finite float with None so the dashboard can
-            # detect and display a data-quality warning
-            for k, v in telemetry.items():
-                if isinstance(v, float) and not math.isfinite(v):
-                    telemetry[k] = None
-            try:
-                print(json.dumps(telemetry), flush=True)
-            except Exception as exc2:
-                log.error("[Telemetry] Sanitised telemetry still not serialisable: %s", exc2)
-
-        next_tick += interval
-        sleep_time = next_tick - time.perf_counter()
-        if sleep_time < -interval:
-            log.warning(
-                "[Timing] Inference overrun: %.1f ms behind — resetting tick anchor.",
-                -sleep_time * 1000,
-            )
-            next_tick = time.perf_counter()
-            sleep_time = 0.0
-        time.sleep(max(0.0, sleep_time))
-
-    ingest.join(timeout=2.0)
-    if _ingest_exc[0] is not None:
-        raise RuntimeError(
-            f"Pipeline terminated due to ingest thread failure: {_ingest_exc[0]}"
-        ) from _ingest_exc[0]
-    log.info("Pipeline stopped. Drop rate: %.2f%%", receiver.drop_rate_pct)
+    log.info("Pipeline stopped. Final drop rate: %.2f%%", receiver.drop_rate_pct)
 
 
 # ---------------------------------------------------------------------------
@@ -251,7 +180,7 @@ if __name__ == "__main__":
         run_demo(jsonl_path=args.demo, interval=args.interval)
     else:
         if args.mode == "udp":
-            receiver: Union[UDPReceiver, BridgeReceiver] = UDPReceiver(port=args.port)
+            recv: Union[UDPReceiver, BridgeReceiver] = UDPReceiver(port=args.port)
         else:
             import os
             fifo_path = (
@@ -259,6 +188,6 @@ if __name__ == "__main__":
                 or os.environ.get("EDGEGUARD_BRIDGE_FIFO")
                 or "/run/arduino/sensor_batch"
             )
-            receiver = BridgeReceiver(fifo_path=fifo_path)
+            recv = BridgeReceiver(fifo_path=fifo_path)
 
-        run_live(receiver=receiver, interval=args.interval)
+        run_live(receiver=recv, interval=args.interval)

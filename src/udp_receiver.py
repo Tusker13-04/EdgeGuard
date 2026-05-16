@@ -18,40 +18,15 @@ import struct
 import time
 import logging
 import numpy as np
-from abc import ABC, abstractmethod
 import socket
+
+from src.schema import BaseReceiver, FEATURE_COLS, N_FEATURES
 
 log = logging.getLogger(__name__)
 
 PACKET_FORMAT = '<LLffff'
 PACKET_SIZE   = struct.calcsize(PACKET_FORMAT)  # 24 bytes
 assert PACKET_SIZE == 24, f"Packet size mismatch: {PACKET_SIZE}"
-
-# Feature column order written into the circular buffer
-# Index: 0=accX, 1=accY, 2=accZ, 3=board_temp
-FEATURE_COLS = ["accel_x", "accel_y", "accel_z", "board_temp"]
-N_FEATURES   = len(FEATURE_COLS)  # 4
-
-
-class BaseReceiver(ABC):
-    """Abstract base class for telemetry ingest providers."""
-
-    @abstractmethod
-    def run(self, buf, stop_event):
-        """Main ingest loop. Should block until stop_event is set."""
-        pass
-
-    @property
-    @abstractmethod
-    def last_temp_c(self):
-        """Most recent board temperature in degrees C."""
-        pass
-
-    @property
-    @abstractmethod
-    def drop_rate_pct(self) -> float:
-        """Current packet drop rate as a percentage."""
-        pass
 
 
 class PacketParser:
