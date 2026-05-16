@@ -17,7 +17,10 @@
 
 // ── Sampling config ───────────────────────────────────────────────────────
 // LIS3DH ODR = 400 Hz
-// FIFO watermark = 100 samples -> ISR fires every 250 ms
+// Hardware FIFO is 32 samples deep. We trigger an interrupt every 25 samples.
+#define SAMPLES_PER_IRQ  25
+
+// We accumulate 4 IRQs (100 samples) before sending a batch to the MPU.
 #define FIFO_WATERMARK   100
 
 // ── Watchdog ──────────────────────────────────────────────────────────────

@@ -56,37 +56,47 @@ void onFifoWatermark() {
 #define ACQ_PRIORITY   5
 
 void acq_thread_func(void *p1, void *p2, void *p3) {
+    uint8_t batch_offset = 0;
+
     while (true) {
-        // Wait for ISR to signal that FIFO is ready
+        // Wait for ISR to signal that hardware FIFO has SAMPLES_PER_IRQ (25) samples
         k_sem_take(&fifo_sem, K_FOREVER);
 
         uint8_t fifo_src = lis.readRegister8(LIS3DH_REG_FIFOSRC);
         if (fifo_src & 0x40) {
-            // Reset FIFO on overflow
+            // Reset FIFO on overflow and discard current partial batch
             lis.writeRegister8(LIS3DH_REG_FIFOCTRL, 0x00);
-            lis.writeRegister8(LIS3DH_REG_FIFOCTRL, (0x01 << 6) | (FIFO_WATERMARK & 0x1F));
+            lis.writeRegister8(LIS3DH_REG_FIFOCTRL, (0x01 << 6) | (SAMPLES_PER_IRQ & 0x1F));
+            batch_offset = 0;
             continue;
         }
 
-        for (uint8_t i = 0; i < FIFO_WATERMARK; i++) {
+        for (uint8_t i = 0; i < SAMPLES_PER_IRQ; i++) {
             sensors_event_t event{};
+            uint8_t idx = batch_offset + i;
+
             if (!lis.getEvent(&event)) {
-                batch[i].timestamp_us = micros();
-                batch[i].sequence_id  = seq_counter++;
-                batch[i].accel_x = batch[i].accel_y = batch[i].accel_z = batch[i].board_temp = NAN;
+                batch[idx].timestamp_us = micros();
+                batch[idx].sequence_id  = seq_counter++;
+                batch[idx].accel_x = batch[idx].accel_y = batch[idx].accel_z = batch[idx].board_temp = NAN;
                 continue;
             }
 
-            batch[i].timestamp_us = micros();
-            batch[i].sequence_id  = seq_counter++;
-            batch[i].accel_x      = event.acceleration.x;
-            batch[i].accel_y      = event.acceleration.y;
-            batch[i].accel_z      = event.acceleration.z;
-            batch[i].board_temp   = last_temp_c;
+            batch[idx].timestamp_us = micros();
+            batch[idx].sequence_id  = seq_counter++;
+            batch[idx].accel_x      = event.acceleration.x;
+            batch[idx].accel_y      = event.acceleration.y;
+            batch[idx].accel_z      = event.acceleration.z;
+            batch[idx].board_temp   = last_temp_c;
         }
 
-        // Send optimized batch via Bridge RPC notification
-        Bridge.notify("sensor_batch", (uint8_t*)batch, sizeof(batch));
+        batch_offset += SAMPLES_PER_IRQ;
+
+        // Only notify MPU when we have accumulated a full batch (e.g. 100 samples)
+        if (batch_offset >= FIFO_WATERMARK) {
+            Bridge.notify("sensor_batch", (uint8_t*)batch, sizeof(batch));
+            batch_offset = 0;
+        }
     }
 }
 
@@ -117,13 +127,9 @@ void setup() {
     // FIFO setup
     uint8_t ctrl5 = lis.readRegister8(LIS3DH_REG_CTRL5);
     lis.writeRegister8(LIS3DH_REG_CTRL5, ctrl5 | 0x40);
-    // Note: Watermark is 5-bit (0-31), but LIS3DH supports larger FIFO.
-    // However, the standard library might need direct register writes for > 32 samples.
-    // LIS3DH supports 32 levels. For 100 samples we use the FIFO in Stream Mode
-    // and trigger IRQ every 25 samples?  Actually, for 100 sample batching we'd
-    // need to drain multiple times OR use 25 watermark and send every 4 interrupts.
-    // Let's stick to 25 watermark and send 100 sample batches (4x watermark triggers).
-    lis.writeRegister8(LIS3DH_REG_FIFOCTRL, (0x01 << 6) | (25 & 0x1F));
+    // Note: LIS3DH supports 32 levels. We trigger an interrupt every SAMPLES_PER_IRQ (25) samples.
+    // The acquisition thread accumulates multiple IRQs into a larger 100-sample Bridge batch.
+    lis.writeRegister8(LIS3DH_REG_FIFOCTRL, (0x01 << 6) | (SAMPLES_PER_IRQ & 0x1F));
 
     uint8_t ctrl3 = lis.readRegister8(LIS3DH_REG_CTRL3);
     lis.writeRegister8(LIS3DH_REG_CTRL3, ctrl3 | 0x04);
