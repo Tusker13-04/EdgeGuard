@@ -41,7 +41,6 @@ bool               temp_req_pending = false;
 uint32_t           temp_req_ms      = 0;
 
 // Binary semaphore for thread synchronization
-// On UNO Q / Zephyr, we can use a Semaphore for thread-safe signaling
 struct k_sem       fifo_sem;
 
 // ── FIFO watermark ISR ────────────────────────────────────────────────────
@@ -76,6 +75,7 @@ void acq_thread_func(void *p1, void *p2, void *p3) {
             uint8_t idx = batch_offset + i;
 
             if (!lis.getEvent(&event)) {
+                // FIX FLAW-03: NaN injection here is fine, Python now handles it per-sample
                 batch[idx].timestamp_us = micros();
                 batch[idx].sequence_id  = seq_counter++;
                 batch[idx].accel_x = batch[idx].accel_y = batch[idx].accel_z = batch[idx].board_temp = NAN;
@@ -95,6 +95,11 @@ void acq_thread_func(void *p1, void *p2, void *p3) {
         // Only notify MPU when we have accumulated a full batch (e.g. 100 samples)
         if (batch_offset >= FIFO_WATERMARK) {
             Bridge.notify("sensor_batch", (uint8_t*)batch, sizeof(batch));
+            
+            // FIX FLAW-07: Reload watchdog in the high-priority thread so Bridge stalls
+            // don't cause a silent reboot via loop() starvation.
+            IWatchdog.reload();
+            
             batch_offset = 0;
         }
     }
@@ -127,8 +132,6 @@ void setup() {
     // FIFO setup
     uint8_t ctrl5 = lis.readRegister8(LIS3DH_REG_CTRL5);
     lis.writeRegister8(LIS3DH_REG_CTRL5, ctrl5 | 0x40);
-    // Note: LIS3DH supports 32 levels. We trigger an interrupt every SAMPLES_PER_IRQ (25) samples.
-    // The acquisition thread accumulates multiple IRQs into a larger 100-sample Bridge batch.
     lis.writeRegister8(LIS3DH_REG_FIFOCTRL, (0x01 << 6) | (SAMPLES_PER_IRQ & 0x1F));
 
     uint8_t ctrl3 = lis.readRegister8(LIS3DH_REG_CTRL3);
@@ -137,8 +140,8 @@ void setup() {
     pinMode(LIS3DH_INT1_PIN, INPUT);
     attachInterrupt(digitalPinToInterrupt(LIS3DH_INT1_PIN), onFifoWatermark, RISING);
 
-    // Init semaphore
-    k_sem_init(&fifo_sem, 0, 1);
+    // FIX FLAW-02: Init counting semaphore: allow up to 4 pending ISR signals
+    k_sem_init(&fifo_sem, 0, FIFO_WATERMARK / SAMPLES_PER_IRQ);
 
     // Start acquisition thread
     k_thread_create(&acq_thread_data, acq_stack,
@@ -170,7 +173,6 @@ void loop() {
         temp_req_ms      = millis();
     }
     
-    // Periodically reload watchdog
     IWatchdog.reload();
     delay(10);
 }

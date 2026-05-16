@@ -4,18 +4,6 @@
 # Spawns main.py as a subprocess, reads its stdout (one JSON line per
 # inference cycle), and broadcasts each message to all connected
 # WebSocket clients.
-#
-# Usage:
-#   uvicorn dashboard.server:app --host 0.0.0.0 --port 8080
-#
-# Environment variables:
-#   EDGEGUARD_MODE            'bridge' (default) or 'udp'
-#   EDGEGUARD_DEMO            Path to a .jsonl replay file (activates demo mode)
-#   EDGEGUARD_BRIDGE_FIFO     Override Bridge IPC FIFO path
-#   EDGEGUARD_MAX_CLIENTS     Max simultaneous WebSocket clients (default: 10)
-#   EDGEGUARD_ALLOWED_ORIGINS Comma-separated allowed WS origins (empty = any)
-#
-# Then open http://<pi-ip>:8080 in a browser.
 
 import asyncio
 import json
@@ -35,9 +23,6 @@ app = FastAPI(title="EdgeGuard Dashboard")
 MAIN_PY = str(Path(__file__).resolve().parent.parent / "main.py")
 
 _DEMO_FILE       = os.environ.get("EDGEGUARD_DEMO",    "")
-# FIX: was 'udp' -- align default with main.py which defaults to 'bridge'
-# (the production UNO Q target).  Using 'udp' here caused the server to
-# always spawn main.py --mode udp even on a fully wired UNO Q board.
 _MODE            = os.environ.get("EDGEGUARD_MODE",    "bridge")
 _BRIDGE_FIFO     = os.environ.get("EDGEGUARD_BRIDGE_FIFO", "")
 _MAX_CLIENTS     = int(os.environ.get("EDGEGUARD_MAX_CLIENTS", "10"))
@@ -49,6 +34,11 @@ _ALLOWED_ORIGINS = [
 # Mutable set of live WebSocket clients
 _clients: set[WebSocket] = set()
 
+# FIX FLAW-05: Decouple reader from broadcast with a bounded queue.
+# Prevents slow WebSocket clients from creating back-pressure that stalls
+# the main inference loop in main.py.
+_telemetry_queue: asyncio.Queue = asyncio.Queue(maxsize=50)
+
 # Strong references to background tasks -- prevents Python GC from cancelling them
 _background_tasks: set[asyncio.Task] = set()
 
@@ -57,16 +47,16 @@ async def _broadcast(message: str) -> None:
     """
     Send message to all clients concurrently with a per-client send timeout.
     Dead/slow clients are removed from _clients.
-
-    Uses list(_clients) snapshot before iterating to prevent RuntimeError
-    if _clients is mutated by a concurrent websocket_endpoint coroutine.
     """
+    if not _clients:
+        return
+
     dead: set[WebSocket] = set()
     sends = {
         ws: asyncio.create_task(
             asyncio.wait_for(ws.send_text(message), timeout=0.5)
         )
-        for ws in list(_clients)   # snapshot to avoid set-changed-during-iteration
+        for ws in list(_clients)
     }
     for ws, task in sends.items():
         try:
@@ -76,11 +66,23 @@ async def _broadcast(message: str) -> None:
     _clients.difference_update(dead)
 
 
+async def _broadcast_worker() -> None:
+    """Consumes telemetry from the queue and broadcasts to all clients."""
+    while True:
+        try:
+            message = await _telemetry_queue.get()
+            await _broadcast(message)
+            _telemetry_queue.task_done()
+        except asyncio.CancelledError:
+            break
+        except Exception as exc:
+            log.error("[Server] Broadcast worker error: %s", exc)
+
+
 async def _pipeline_reader() -> None:
     """
     Spawn main.py, read its stdout line-by-line, broadcast each JSON
     telemetry line to all WebSocket clients.
-    stderr is forwarded so crashes in main.py appear in the uvicorn terminal.
     """
     cmd = [sys.executable, MAIN_PY, "--mode", _MODE]
     if _DEMO_FILE:
@@ -107,7 +109,11 @@ async def _pipeline_reader() -> None:
             continue
         try:
             json.loads(text)   # validate JSON before broadcasting
-            await _broadcast(text)
+            # FIX FLAW-05: Non-blocking put -- drop telemetry if dashboard is too slow
+            try:
+                _telemetry_queue.put_nowait(text)
+            except asyncio.QueueFull:
+                log.warning("[Server] Telemetry queue full -- dropping frame.")
         except json.JSONDecodeError:
             pass
 
@@ -120,42 +126,39 @@ async def _pipeline_reader() -> None:
 
 
 async def _pipeline_reader_with_restart() -> None:
-    """
-    Wraps _pipeline_reader() with automatic restart on crash.
-    Runs indefinitely until the ASGI server shuts down.
-    """
+    """Wraps _pipeline_reader() with automatic restart on crash."""
     restart_delay = 2.0
     while True:
         try:
             await _pipeline_reader()
         except asyncio.CancelledError:
-            log.info("[Server] Pipeline reader cancelled -- shutting down.")
             break
         except Exception as exc:
-            log.error(
-                "[Server] Pipeline reader raised %s -- restarting in %.1fs.",
-                exc, restart_delay,
-            )
+            log.error("[Server] Pipeline reader raised %s -- restarting.", exc)
         await asyncio.sleep(restart_delay)
 
 
 @app.on_event("startup")
 async def startup() -> None:
-    # Store a strong reference so Python's GC does not cancel the task
-    task = asyncio.create_task(_pipeline_reader_with_restart())
-    _background_tasks.add(task)
-    task.add_done_callback(_background_tasks.discard)
+    # Store strong references so Python's GC does not cancel the tasks
+    task1 = asyncio.create_task(_pipeline_reader_with_restart())
+    task2 = asyncio.create_task(_broadcast_worker())
+    
+    _background_tasks.add(task1)
+    _background_tasks.add(task2)
+    
+    task1.add_done_callback(_background_tasks.discard)
+    task2.add_done_callback(_background_tasks.discard)
+    
     log.info("[Server] Dashboard started. mode=%s max_clients=%d", _MODE, _MAX_CLIENTS)
 
 
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket) -> None:
-    # Connection limit
     if len(_clients) >= _MAX_CLIENTS:
-        await ws.close(code=1008)   # Policy Violation
+        await ws.close(code=1008)
         return
 
-    # Optional origin allowlist
     if _ALLOWED_ORIGINS:
         origin = ws.headers.get("origin", "")
         if origin not in _ALLOWED_ORIGINS:
@@ -166,11 +169,11 @@ async def websocket_endpoint(ws: WebSocket) -> None:
     _clients.add(ws)
     try:
         while True:
-            await ws.receive_text()   # keep connection alive
+            await ws.receive_text()
     except WebSocketDisconnect:
         pass
     finally:
-        _clients.discard(ws)         # always clean up on any disconnect
+        _clients.discard(ws)
 
 
 @app.get("/", response_class=HTMLResponse)

@@ -36,10 +36,12 @@ class BridgeParser:
     ])
 
     def __init__(self):
-        self._last_valid_temp: Optional[float] = None
+        # FIX FLAW-08: Initialise to 25.0 to avoid None at startup
+        self._last_valid_temp: float = 25.0
+        self._last_valid_accel = np.zeros(3, dtype=np.float32)
 
     def parse_batch_bytes(self, data: bytes) -> List[Tuple[int, int, np.ndarray]]:
-        """Parses a raw byte block into a list of samples."""
+        """Parses a raw byte block into a list of samples with per-sample NaN substitution."""
         n = len(data) // PACKET_SIZE
         if n == 0:
             return []
@@ -52,18 +54,21 @@ class BridgeParser:
             arr['board_temp'].astype(np.float32),
         ])
 
-        if not np.all(np.isfinite(feats)):
-            log.warning("[BridgeParser] Non-finite values in batch -- discarding.")
-            return []
-
-        feats[:, :3] = np.clip(feats[:, :3], -_ACCEL_LIMIT, _ACCEL_LIMIT)
-
+        # FIX FLAW-03: Per-sample substitution instead of whole-batch discard
         for i in range(n):
+            # 1. Accel validation
+            if np.all(np.isfinite(feats[i, :3])):
+                feats[i, :3] = np.clip(feats[i, :3], -_ACCEL_LIMIT, _ACCEL_LIMIT)
+                self._last_valid_accel = feats[i, :3].copy()
+            else:
+                feats[i, :3] = self._last_valid_accel
+
+            # 2. Temperature validation
             t = float(feats[i, 3])
-            if _TEMP_MIN <= t <= _TEMP_MAX:
+            if np.isfinite(t) and _TEMP_MIN <= t <= _TEMP_MAX:
                 self._last_valid_temp = t
             else:
-                feats[i, 3] = self._last_valid_temp if self._last_valid_temp is not None else 25.0
+                feats[i, 3] = self._last_valid_temp
 
         return list(zip(
             arr['timestamp_us'].tolist(),
@@ -81,7 +86,7 @@ class BridgeReceiver(BaseReceiver):
         self.parser = BridgeParser()
         self._lock = threading.Lock()
         self._last_seq: Optional[int] = None
-        self._last_temp_c: Optional[float] = None
+        self._last_temp_c: float = 25.0  # FIX FLAW-08: Default to 25.0
         self._last_batch_time: float = time.monotonic()
         self.total_received: int = 0
         self.total_dropped:  int = 0
@@ -128,25 +133,39 @@ class BridgeReceiver(BaseReceiver):
     def _handle_batch(self, data: bytes, buf) -> None:
         now = time.monotonic()
         samples = self.parser.parse_batch_bytes(data)
-        
-        for _ts, seq, features in samples:
-            with self._lock:
-                if self._last_seq is not None:
-                    elapsed_s = now - self._last_batch_time
-                    max_plausible = max(int(elapsed_s * 400 * 2), 10_000)
-                    gap = (seq - self._last_seq - 1) & 0xFFFFFFFF
-                    if gap > max_plausible:
-                        gap = 0
-                    self.total_dropped += int(gap)
-                
-                self._last_seq = seq
-                self.total_received += 1
-                self._last_temp_c = round(float(features[3]), 2)
-                self._last_batch_time = now
+        if not samples:
+            return
+
+        # FIX FLAW-04: Single lock acquisition per batch for bulk counter updates
+        with self._lock:
+            first_seq = samples[0][1]
+            last_seq  = samples[-1][1]
+            
+            if self._last_seq is not None:
+                elapsed_s = now - self._last_batch_time
+                max_plausible = max(int(elapsed_s * 400 * 2), 10_000)
+                # Compute gap between last batch and this batch
+                gap = (first_seq - self._last_seq - 1) & 0xFFFFFFFF
+                if gap > max_plausible:
+                    log.warning("[BridgeReceiver] Implausible gap %d; treating as reboot.", gap)
+                    gap = 0
+                self.total_dropped += int(gap)
+            
+            # Internal batch sequence integrity check
+            internal_gap = (last_seq - first_seq + 1) - len(samples)
+            if internal_gap > 0:
+                self.total_dropped += int(internal_gap)
+
+            self.total_received += len(samples)
+            self._last_seq = last_seq
+            self._last_batch_time = now
+            self._last_temp_c = round(float(samples[-1][2][3]), 2)
+
+        for _, _, features in samples:
             buf.add_row(features)
 
     @property
-    def last_temp_c(self) -> Optional[float]:
+    def last_temp_c(self) -> float:
         with self._lock:
             return self._last_temp_c
 

@@ -69,7 +69,13 @@ class PipelineEngine:
             if self._ingest_exc[0] is not None:
                 break
 
-            result = self.pipeline.run_cycle(self.buf)
+            try:
+                result = self.pipeline.run_cycle(self.buf)
+            except Exception as exc:
+                log.error("[Engine] Inference cycle raised unexpectedly: %s", exc)
+                # Sleep and continue to avoid tight failure loop
+                time.sleep(self.interval)
+                continue
 
             telemetry = {
                 "ts":             round(time.time(), 3),

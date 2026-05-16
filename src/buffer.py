@@ -66,23 +66,15 @@ class FastCircularBuffer:
         Returns a chronological copy of all rows currently in the buffer.
         If not yet full, returns only the rows written so far.
 
-        The expensive np.concatenate / .copy() is performed OUTSIDE the lock
-        so the ingest thread is never blocked by inference timing.
+        Holds the lock for the entire duration of the copy/concatenate
+        to prevent torn reads from concurrent add_row() calls.
         """
-        # --- Critical section: copy only O(1) scalars -----------------------
         with self._lock:
-            wi       = self._write_idx
-            full     = self._is_full
-            buf_ref  = self._buf
-        # --- End critical section --------------------------------------------
+            if not self._is_full:
+                return self._buf[:self._write_idx].copy()
 
-        if not full:
-            return buf_ref[:wi].copy()
-
-        # Unwrap ring: tail (oldest) ++ head (newest) — copies outside lock
-        tail = buf_ref[wi:].copy()
-        head = buf_ref[:wi].copy()
-        return np.concatenate((tail, head), axis=0)
+            # Unwrap ring: tail (oldest) ++ head (newest)
+            return np.concatenate((self._buf[self._write_idx:], self._buf[:self._write_idx]), axis=0)
 
     @property
     def n_rows(self) -> int:

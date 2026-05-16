@@ -28,7 +28,7 @@ CLASS_NAMES = ["normal", "imbalance"]
 # typical idle motor vibration and produces near-100% false positives.
 # 40.0 m/s^2 (~4g) is a calibrated starting point for imbalance detection;
 # adjust based on baseline vibration measurements for the specific motor.
-RMS_ANOMALY_THRESHOLD = 40.0
+RMS_ANOMALY_THRESHOLD = float(os.environ.get("EDGEGUARD_RMS_THRESHOLD", "40.0"))
 
 # Max consecutive ONNX failures before the session is disabled
 _ONNX_FAIL_LIMIT = 5

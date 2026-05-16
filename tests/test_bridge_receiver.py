@@ -40,7 +40,23 @@ def test_parse_batch_bytes_empty():
 
 def test_parse_batch_bytes_non_finite():
     parser = BridgeParser()
-    # Create a payload with NaN
-    packet = struct.pack('<LLffff', 100, 1, 1.0, 1.0, 1.0, float('nan'))
+    # Create a payload with NaN in temperature
+    packet = struct.pack('<LLffff', 100, 1, 1.1, 2.2, 3.3, float('nan'))
     results = parser.parse_batch_bytes(packet)
-    assert len(results) == 0  # Discarded
+    assert len(results) == 1
+    res_ts, res_seq, res_feats = results[0]
+    # Check that temperature was substituted with default (25.0)
+    assert res_feats[3] == 25.0
+    # Check that accel was preserved
+    np.testing.assert_allclose(res_feats[:3], [1.1, 2.2, 3.3], atol=1e-5)
+
+def test_parse_batch_bytes_all_nan():
+    parser = BridgeParser()
+    # Create a payload with all NaNs (typical getEvent() failure)
+    packet = struct.pack('<LLffff', 100, 1, float('nan'), float('nan'), float('nan'), float('nan'))
+    results = parser.parse_batch_bytes(packet)
+    assert len(results) == 1
+    res_ts, res_seq, res_feats = results[0]
+    # Check that everything was substituted with defaults
+    assert res_feats[3] == 25.0  # temp
+    np.testing.assert_allclose(res_feats[:3], [0.0, 0.0, 0.0], atol=1e-5)  # accel init default
