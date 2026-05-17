@@ -280,7 +280,8 @@ EdgeGuard/
 │   ├── test_capture.py
 │   ├── test_inference.py
 │   ├── test_bridge_receiver.py
-│   └── test_udp_receiver.py
+│   ├── test_udp_receiver.py
+│   └── test_cli.py                # CLI argument validation (ISS-05)
 ├── data/
 │   └── raw/                       # Captured CSVs (gitignored contents)
 │       ├── normal/
@@ -320,6 +321,11 @@ pytest tests/ -v
 - **arduino-router dependency**: `BridgeReceiver` requires the `arduino-router` daemon
   to be running on the MPU and listening at `/var/run/arduino-router.sock`. If the
   daemon is not active, the receiver will log connection errors and retry every 2 s.
+  The daemon's behaviour when multiple clients connect simultaneously (e.g. running
+  `main.py` and `capture_session.py` at the same time) is not verifiable from this
+  codebase — its `accept()` loop is in the closed `arduino-router` binary. Until
+  confirmed otherwise, treat the socket as **single-client**: stop `main.py` before
+  running a capture session, or vice versa.
 - **Python >= 3.10** required on the QRB2210 MPU. Confirm with `python3 --version`
   before running.
 - **UDP mode** binds to `127.0.0.1` by default. Pass `bind_host=""` only when

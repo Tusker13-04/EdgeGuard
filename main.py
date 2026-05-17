@@ -176,6 +176,10 @@ if __name__ == "__main__":
     )
     args = ap.parse_args()
 
+    # ISS-05: Reject non-positive interval before any I/O or thread start.
+    if args.interval <= 0:
+        ap.error("interval must be > 0 (got %s)" % args.interval)
+
     if args.demo is not None:
         run_demo(jsonl_path=args.demo, interval=args.interval)
     else:
