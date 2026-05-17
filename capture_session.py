@@ -99,11 +99,7 @@ if __name__ == "__main__":
         stats_dropped = lambda: parser.total_dropped
         stats_rate    = lambda: parser.drop_rate_pct
     else:
-        fifo_path = (
-            args.bridge_fifo
-            or os.environ.get("EDGEGUARD_BRIDGE_FIFO")
-            or "/run/arduino/sensor_batch"
-        )
+        fifo_path = get_bridge_fifo_path(args.bridge_fifo)
         print(f"[Bridge] Using FIFO: {fifo_path}")
         bridge = BridgeReceiver(socket_path=fifo_path)
         ingest = threading.Thread(

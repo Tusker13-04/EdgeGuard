@@ -104,15 +104,16 @@ def record_session(
             break
         time.sleep(0.05)
 
-    snap = buffer.get_snapshot()
-
-    # FIX NEW-02: Freeze available rows before snapshot to avoid TOCTOU gap.
-    # We must not re-read buffer.total_written after the snapshot is taken,
-    # as the ingest thread may have added more rows that aren't in 'snap'.
+    # Freeze the number of NEW rows available BEFORE taking the snapshot.
+    # This prevents the ingest thread from adding rows between the count check
+    # and the snapshot, which would cause the slice to drift into pre-session data.
     rows_to_slice = min(
         buffer.total_written - record_start_written,
         n_rows_needed,
     )
+
+    snap = buffer.get_snapshot()
+
     # The most recent rows_to_slice rows in the snapshot are the recording
     data = snap[-max(rows_to_slice, 1):].astype(np.float32)
 

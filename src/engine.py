@@ -70,7 +70,13 @@ class PipelineEngine:
                 break
 
             try:
-                result = self.pipeline.run_cycle(self.buf)
+                # AUD-04: Take snapshot here and pass to pipeline (decoupling)
+                t0 = time.perf_counter()
+                snapshot = self.buf.get_snapshot()
+                latency_snapshot_ms = (time.perf_counter() - t0) * 1000
+
+                result = self.pipeline.run_cycle(snapshot)
+                result["latency_ms"] = round(result["latency_ms"] + latency_snapshot_ms, 2)
             except Exception as exc:
                 log.error("[Engine] Inference cycle raised unexpectedly: %s", exc)
                 # Sleep and continue to avoid tight failure loop

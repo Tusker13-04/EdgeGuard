@@ -110,14 +110,14 @@ class InferencePipeline:
         self.sess             = sess
         self._onnx_fail_count = 0
 
-    def run_cycle(self, buffer: FastCircularBuffer) -> dict:
+    def run_cycle(self, snapshot: np.ndarray) -> dict:
         """
         Single inference cycle.  Returns a result dict for the dashboard.
-        All inference exceptions are caught so the calling loop is never killed.
+        
+        Args:
+            snapshot: A chronological copy of buffer data (np.ndarray).
         """
         t0       = time.perf_counter()
-        snapshot = buffer.get_snapshot()
-        latency_snapshot_ms = (time.perf_counter() - t0) * 1000
 
         if len(snapshot) < WINDOW_SIZE:
             return {
@@ -156,7 +156,7 @@ class InferencePipeline:
             result = _rule_based_score(snapshot)
 
         latency_inference_ms = (time.perf_counter() - t1) * 1000
-        result["latency_ms"] = round(latency_snapshot_ms + latency_inference_ms, 2)
+        result["latency_ms"] = round(latency_inference_ms, 2)
         result["n_rows"]     = WINDOW_SIZE
         return result
 
@@ -170,10 +170,11 @@ def load_model():
     return _load_model()
 
 
-def run_inference_cycle(buffer: FastCircularBuffer, sess=None) -> dict:
+def run_inference_cycle(buffer: FastCircularBuffer, sess=None):
     """
     Stateless convenience wrapper retained for backward compatibility.
-    Prefer InferencePipeline.run_cycle() for production use.
+    Prefer InferencePipeline.run_cycle for production use.
     """
     pipeline = InferencePipeline(sess=sess)
-    return pipeline.run_cycle(buffer)
+    # Decoupling fix: take snapshot before passing to the pipeline
+    return pipeline.run_cycle(buffer.get_snapshot())

@@ -186,12 +186,7 @@ if __name__ == "__main__":
         if args.mode == "udp":
             recv: Union[UDPReceiver, BridgeReceiver] = UDPReceiver(port=args.port)
         else:
-            import os
-            fifo_path = (
-                args.bridge_fifo
-                or os.environ.get("EDGEGUARD_BRIDGE_FIFO")
-                or "/run/arduino/sensor_batch"
-            )
+            fifo_path = get_bridge_fifo_path(args.bridge_fifo)
             recv = BridgeReceiver(socket_path=fifo_path)
 
         run_live(receiver=recv, interval=args.interval)

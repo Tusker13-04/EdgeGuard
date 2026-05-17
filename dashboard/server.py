@@ -174,7 +174,8 @@ async def websocket_endpoint(ws: WebSocket) -> None:
 
     if _ALLOWED_ORIGINS:
         origin = ws.headers.get("origin", "")
-        if origin not in _ALLOWED_ORIGINS:
+        # Note: Browsers send 'null' for file:// or sandboxed origins.
+        if origin not in _ALLOWED_ORIGINS and origin != "null":
             await ws.close(code=1008)
             return
 
