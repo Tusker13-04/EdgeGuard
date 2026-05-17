@@ -105,7 +105,7 @@ if __name__ == "__main__":
             or "/run/arduino/sensor_batch"
         )
         print(f"[Bridge] Using FIFO: {fifo_path}")
-        bridge = BridgeReceiver(fifo_path=fifo_path)
+        bridge = BridgeReceiver(socket_path=fifo_path)
         ingest = threading.Thread(
             target=bridge.run,
             args=(buf, stop_event),
