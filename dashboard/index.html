@@ -18,6 +18,8 @@
     --amber:     #f59e0b;
     --teal:      #2dd4bf;
     --teal-dim:  #134e4a;
+    --lp-accent: #a78bfa;   /* Low-Power purple accent */
+    --lp-dim:    #3b2f6e;
     --radius:    0.5rem;
     --mono:      'JetBrains Mono', 'Fira Code', monospace;
   }
@@ -29,6 +31,7 @@
     --text:     #0f172a;
     --muted:    #64748b;
     --faint:    #cbd5e1;
+    --lp-dim:   #ede9fe;
   }
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   html { font-size: 16px; }
@@ -73,6 +76,74 @@
     transition: color 0.2s, border-color 0.2s;
   }
   .theme-btn:hover { color: var(--text); border-color: var(--teal); }
+
+  /* ── MODE SWITCH ─────────────────────────────────────────────────────── */
+  .mode-switch {
+    display: flex;
+    align-items: center;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    height: 30px;
+    user-select: none;
+  }
+  .mode-btn {
+    padding: 0 0.85rem;
+    height: 100%;
+    display: flex; align-items: center; gap: 0.35rem;
+    cursor: pointer;
+    border: none;
+    background: none;
+    color: var(--muted);
+    transition: background 0.2s, color 0.2s;
+    white-space: nowrap;
+  }
+  .mode-btn svg { flex-shrink: 0; }
+  .mode-btn.active-lp {
+    background: var(--lp-dim);
+    color: var(--lp-accent);
+  }
+  .mode-btn.active-hp {
+    background: var(--teal-dim);
+    color: var(--teal);
+  }
+  .mode-divider {
+    width: 1px; height: 100%;
+    background: var(--border);
+    flex-shrink: 0;
+  }
+
+  /* ── MODE BANNER (sits just below nav when active) ───────────────────── */
+  #mode-banner {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    gap: 0.6rem;
+    padding: 0.3rem 1.5rem;
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    border-bottom: 1px solid var(--border);
+    transition: background 0.3s;
+  }
+  #mode-banner.lp {
+    display: flex;
+    background: rgba(167,139,250,0.08);
+    color: var(--lp-accent);
+    border-color: var(--lp-dim);
+  }
+  #mode-banner.hp {
+    display: flex;
+    background: rgba(45,212,191,0.06);
+    color: var(--teal);
+    border-color: var(--teal-dim);
+  }
 
   /* DISCONNECT BANNER */
   #disconnect-banner {
@@ -130,7 +201,30 @@
     gap: 2rem;
     margin-bottom: 1.5rem;
     flex-wrap: wrap;
+    transition: border-color 0.3s;
   }
+  .health-card.lp-active {
+    border-color: var(--lp-dim);
+    box-shadow: 0 0 0 1px var(--lp-dim);
+  }
+
+  /* ── MODE BADGE on health card ───────────────────────────────────── */
+  .mode-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    padding: 0.18rem 0.55rem;
+    border-radius: var(--radius);
+    margin-top: 0.45rem;
+    transition: opacity 0.25s;
+  }
+  .mode-badge.lp { background: var(--lp-dim);   color: var(--lp-accent); }
+  .mode-badge.hp { background: var(--teal-dim); color: var(--teal); }
+
   .health-indicator {
     width: 96px; height: 96px; border-radius: 50%;
     display: flex; align-items: center; justify-content: center;
@@ -152,6 +246,19 @@
   .health-text .prob {
     font-size: 0.8rem; margin-top: 0.5rem;
     font-family: var(--mono); color: var(--muted);
+  }
+
+  /* ── MPU-ONLY section (dims in LP mode) ──────────────────────────── */
+  .mpu-section {
+    transition: opacity 0.35s, filter 0.35s;
+  }
+  .mpu-section.dimmed {
+    opacity: 0.3;
+    filter: grayscale(0.6);
+    pointer-events: none;
+  }
+  .mpu-section.dimmed::after {
+    /* optional overlay label — rendered via JS */
   }
 
   /* CONTRAST DEMO BUTTON */
@@ -329,13 +436,20 @@
     border-top: 1px solid var(--border);
     font-size: 0.7rem;
     color: var(--muted);
-    display: flex; gap: 1.5rem;
+    display: flex; gap: 1.5rem; flex-wrap: wrap;
   }
+  #sb-mode {
+    margin-left: auto;
+    font-weight: 700;
+  }
+  #sb-mode.lp { color: var(--lp-accent); }
+  #sb-mode.hp { color: var(--teal); }
 
   /* RESPONSIVE */
   @media (max-width: 600px) {
     .health-card { flex-direction: column; text-align: center; }
     .health-text h2 { font-size: 1.5rem; }
+    .mode-switch { font-size: 0.65rem; }
   }
 </style>
 </head>
@@ -359,11 +473,40 @@
     EdgeGuard
   </div>
   <div class="nav-right">
+    <!-- ── MODE SWITCH ── -->
+    <div class="mode-switch" role="group" aria-label="Inference mode">
+      <button class="mode-btn" id="btn-lp"
+              onclick="setMode('low_power')"
+              title="Low Power: MCU edge model only (fast, lower accuracy)">
+        <!-- moon / sleep icon -->
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+        </svg>
+        Low Power
+      </button>
+      <div class="mode-divider"></div>
+      <button class="mode-btn" id="btn-hp"
+              onclick="setMode('high_power')"
+              title="High Power: MCU triggers MPU for full ONNX inference">
+        <!-- zap icon -->
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+          <polyline points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+        </svg>
+        High Power
+      </button>
+    </div>
     <div class="conn-dot" id="conn-dot"></div>
     <span class="conn-label" id="conn-label">Connecting&hellip;</span>
     <button class="theme-btn" onclick="toggleTheme()" aria-label="Toggle theme">&#9789;</button>
   </div>
 </nav>
+
+<!-- MODE BANNER -->
+<div id="mode-banner" role="status" aria-live="polite">
+  <span id="mode-banner-text"></span>
+</div>
 
 <!-- TABS -->
 <div class="tabs" role="tablist">
@@ -389,17 +532,25 @@
   <!-- OPERATOR PANEL -->
   <div class="panel active" id="panel-operator">
 
-    <div class="health-card">
+    <div class="health-card" id="health-card">
       <div class="health-indicator buffering" id="health-indicator">&#x2B58;</div>
       <div class="health-text">
         <div class="sublabel">Motor status</div>
         <h2 id="health-label">Buffering&hellip;</h2>
         <div class="prob" id="health-prob">Waiting for data</div>
+        <!-- Mode badge shown inline under the status label -->
+        <div class="mode-badge lp" id="health-mode-badge" style="display:none">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none"
+               stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+          </svg>
+          MCU only
+        </div>
       </div>
-      <!-- #3: Contrast Demo button -->
+      <!-- Contrast Demo button -->
       <button class="demo-btn" id="demo-trigger-btn"
               onclick="startContrastDemo()"
-              title="Scripted contrast demo: shows normal → imbalance → normal transition">
+              title="Scripted contrast demo: shows normal &#x2192; imbalance &#x2192; normal">
         &#9654; Run Contrast Demo
       </button>
     </div>
@@ -413,22 +564,24 @@
         <div class="label">Motor temp (DS18B20)</div>
         <div class="value" id="kpi-temp">---<span class="unit">&deg;C</span></div>
       </div>
-      <div class="kpi">
+      <div class="kpi mpu-section" id="kpi-source-card">
         <div class="label">Inference source</div>
         <div class="value" style="font-size:1rem;padding-top:0.4rem" id="kpi-source">---</div>
       </div>
-      <div class="kpi">
+      <div class="kpi mpu-section" id="kpi-latency-card">
         <div class="label">Latency</div>
         <div class="value" id="kpi-latency">---<span class="unit">ms</span></div>
       </div>
     </div>
 
+    <!-- Trend chart: always visible -->
     <div class="chart-card">
       <div class="chart-title">Anomaly probability &mdash; last 60 cycles</div>
       <canvas id="trend-chart" height="120"></canvas>
     </div>
 
-    <div class="chart-card">
+    <!-- MPU charts: dimmed in low-power mode -->
+    <div class="chart-card mpu-section" id="temp-chart-card">
       <div class="chart-title">Motor temperature trend &mdash; DS18B20 (&deg;C)</div>
       <canvas id="temp-chart" height="80"></canvas>
     </div>
@@ -443,7 +596,7 @@
         <div class="label">UDP drop rate</div>
         <div class="value" id="eng-drop">---<span class="unit">%</span></div>
       </div>
-      <div class="eng-card">
+      <div class="eng-card mpu-section" id="eng-latency-card">
         <div class="label">Inference latency</div>
         <div class="value" id="eng-latency">---<span class="unit">ms</span></div>
       </div>
@@ -451,22 +604,23 @@
         <div class="label">Window rows</div>
         <div class="value" id="eng-rows">---</div>
       </div>
-      <div class="eng-card">
+      <div class="eng-card mpu-section" id="eng-source-card">
         <div class="label">Model source</div>
         <div class="value" style="font-size:1.1rem;padding-top:0.3rem" id="eng-source">---</div>
       </div>
-      <div class="eng-card">
-        <div class="label">Imbalance prob</div>
+      <div class="eng-card mpu-section" id="eng-imbalance-card">
+        <div class="label">Imbalance prob (MPU)</div>
         <div class="value" id="eng-imbalance">---<span class="unit">%</span></div>
       </div>
-      <div class="eng-card">
-        <div class="label">Normal prob</div>
+      <div class="eng-card mpu-section" id="eng-normal-card">
+        <div class="label">Normal prob (MPU)</div>
         <div class="value" id="eng-normal">---<span class="unit">%</span></div>
       </div>
     </div>
 
-    <div class="chart-card">
-      <div class="chart-title">Inference latency history (ms)</div>
+    <!-- Latency chart is MPU-specific -->
+    <div class="chart-card mpu-section" id="eng-latency-chart-card">
+      <div class="chart-title">Inference latency history (ms) &mdash; MPU</div>
       <canvas id="latency-chart" height="100"></canvas>
     </div>
 
@@ -484,10 +638,11 @@
   <span id="sb-ts">--:--:--</span>
   <span id="sb-cycles">0 cycles</span>
   <span id="sb-uptime">uptime 0s</span>
+  <span id="sb-mode" class="hp">HIGH POWER</span>
 </div>
 
 <script>
-// ---- State ----------------------------------------------------------------
+// ── State ──────────────────────────────────────────────────────────────────
 const MAX_POINTS = 60;
 const state = {
   anomalyHistory:  [],
@@ -495,9 +650,83 @@ const state = {
   tempHistory:     [],
   cycles:          0,
   startTime:       Date.now(),
+  // 'low_power' | 'high_power'  — mirrors backend; loaded on connect
+  inferenceMode:   'high_power',
 };
 
-// ---- Mini chart (no dependencies) ----------------------------------------
+// ── Mode switch ────────────────────────────────────────────────────────────
+
+/**
+ * Apply mode visually (no network call — call setMode() for that).
+ */
+function applyModeUI(mode) {
+  state.inferenceMode = mode;
+  const isLP = (mode === 'low_power');
+
+  // Nav buttons
+  document.getElementById('btn-lp').className = 'mode-btn' + (isLP ? ' active-lp' : '');
+  document.getElementById('btn-hp').className = 'mode-btn' + (isLP ? '' : ' active-hp');
+
+  // Mode banner
+  const banner     = document.getElementById('mode-banner');
+  const bannerText = document.getElementById('mode-banner-text');
+  banner.className = isLP ? 'lp' : 'hp';
+  bannerText.textContent = isLP
+    ? '\u263D Low Power mode \u2014 MCU edge model only. MPU inference suspended.'
+    : '\u26A1 High Power mode \u2014 MCU + MPU full inference pipeline active.';
+
+  // Health card border
+  document.getElementById('health-card').classList.toggle('lp-active', isLP);
+
+  // Mode badge on health card
+  const badge = document.getElementById('health-mode-badge');
+  badge.style.display = isLP ? 'inline-flex' : 'none';
+
+  // Dim all MPU sections when LP
+  document.querySelectorAll('.mpu-section').forEach(el => {
+    el.classList.toggle('dimmed', isLP);
+  });
+
+  // Status bar
+  const sb = document.getElementById('sb-mode');
+  sb.textContent = isLP ? 'LOW POWER' : 'HIGH POWER';
+  sb.className   = isLP ? 'lp' : 'hp';
+}
+
+/**
+ * Tell the backend to switch mode, then update UI.
+ * POST /api/mode  body: { mode: 'low_power' | 'high_power' }
+ */
+async function setMode(mode) {
+  if (mode === state.inferenceMode) return;
+  try {
+    await fetch('/api/mode', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ mode }),
+    });
+  } catch (e) {
+    console.warn('[EdgeGuard] /api/mode POST failed (offline?)', e);
+  }
+  applyModeUI(mode);
+}
+
+/**
+ * On WS connect, fetch current mode from backend so the UI is always
+ * in sync if the server was restarted with a different default.
+ */
+async function fetchCurrentMode() {
+  try {
+    const res  = await fetch('/api/mode');
+    const data = await res.json();
+    if (data.mode) applyModeUI(data.mode);
+  } catch (e) {
+    // server may not have the endpoint yet — default to high_power
+    applyModeUI('high_power');
+  }
+}
+
+// ── Mini chart (no dependencies) ──────────────────────────────────────────
 function MiniChart(canvasId, color, yMin, yMax, fillColor) {
   const canvas = document.getElementById(canvasId);
   const ctx    = canvas.getContext('2d');
@@ -525,7 +754,6 @@ function MiniChart(canvasId, color, yMin, yMax, fillColor) {
     const xStep = W / (MAX_POINTS - 1);
     const toY   = v => H - ((v - this.yMin) / range) * (H - 8) - 4;
 
-    // Fill
     if (this.fill) {
       ctx.beginPath();
       ctx.moveTo(0, H);
@@ -539,7 +767,6 @@ function MiniChart(canvasId, color, yMin, yMax, fillColor) {
       ctx.fill();
     }
 
-    // Line
     ctx.beginPath();
     ctx.strokeStyle = this.color;
     ctx.lineWidth   = 2;
@@ -550,7 +777,6 @@ function MiniChart(canvasId, color, yMin, yMax, fillColor) {
     });
     ctx.stroke();
 
-    // Threshold line at 0.5 for anomaly chart
     if (this.yMax === 1.0) {
       ctx.beginPath();
       ctx.strokeStyle = 'rgba(239,68,68,0.3)';
@@ -568,7 +794,7 @@ const trendChart   = new MiniChart('trend-chart',   '#2dd4bf', 0, 1,   'rgba(45,
 const tempChart    = new MiniChart('temp-chart',    '#f59e0b', 15, 50,  'rgba(245,158,11,0.07)');
 const latencyChart = new MiniChart('latency-chart', '#a78bfa', 0, 100, 'rgba(167,139,250,0.08)');
 
-// ---- WebSocket ------------------------------------------------------------
+// ── WebSocket ──────────────────────────────────────────────────────────────
 let ws;
 let reconnectTimer;
 
@@ -581,12 +807,12 @@ function connect() {
     document.getElementById('conn-label').textContent = 'Live';
     document.getElementById('disconnect-banner').classList.remove('visible');
     clearTimeout(reconnectTimer);
+    fetchCurrentMode();
   };
 
   ws.onclose = () => {
     document.getElementById('conn-dot').classList.remove('live');
     document.getElementById('conn-label').textContent = 'Reconnecting\u2026';
-    // Show the red disconnect banner so judges never see stale-but-alive UI
     document.getElementById('disconnect-banner').classList.add('visible');
     reconnectTimer = setTimeout(connect, 2000);
   };
@@ -596,11 +822,15 @@ function connect() {
   ws.onmessage = (evt) => {
     let d;
     try { d = JSON.parse(evt.data); } catch { return; }
+    // If the server embeds the current mode in telemetry, honour it.
+    if (d.inference_mode && d.inference_mode !== state.inferenceMode) {
+      applyModeUI(d.inference_mode);
+    }
     onTelemetry(d);
   };
 }
 
-// ---- Update UI ------------------------------------------------------------
+// ── Update UI ──────────────────────────────────────────────────────────────
 function onTelemetry(d) {
   state.cycles++;
 
@@ -612,8 +842,6 @@ function onTelemetry(d) {
   const nRows      = d.n_rows         ?? 0;
   const source     = d.source         || '---';
 
-  // board_temp_c is emitted by main.py from PacketParser.last_temp_c
-  // It is null until the first UDP packet arrives, then a float in \u00b0C.
   const tempVal = (d.board_temp_c !== null && d.board_temp_c !== undefined)
     ? d.board_temp_c.toFixed(1)
     : '---';
@@ -652,11 +880,13 @@ function onTelemetry(d) {
   setText('eng-imbalance', (anomalyP * 100).toFixed(1));
   setText('eng-normal',    (normalP  * 100).toFixed(1));
 
-  // Charts
+  // Charts — only push to MPU charts when HP mode
   trendChart.push(anomalyP);
-  latencyChart.push(latency);
-  if (d.board_temp_c !== null && d.board_temp_c !== undefined) {
-    tempChart.push(d.board_temp_c);
+  if (state.inferenceMode === 'high_power') {
+    latencyChart.push(latency);
+    if (d.board_temp_c !== null && d.board_temp_c !== undefined) {
+      tempChart.push(d.board_temp_c);
+    }
   }
 
   // Status bar
@@ -668,7 +898,7 @@ function onTelemetry(d) {
   // Log
   addLog(d, label);
 
-  // Advance contrast demo if running
+  // Contrast demo
   advanceDemoOnTelemetry(label);
 }
 
@@ -693,22 +923,15 @@ function addLog(d, label) {
   const temp = (d.board_temp_c !== null && d.board_temp_c !== undefined)
     ? d.board_temp_c.toFixed(1) + '\u00b0C'
     : '---';
+  const modeTag = state.inferenceMode === 'low_power' ? '[LP]' : '[HP]';
   line.textContent =
-    `${ts}  ${label.padEnd(10)}  prob=${(d.imbalance_prob*100).toFixed(1)}%` +
+    `${ts} ${modeTag}  ${label.padEnd(10)}  prob=${(d.imbalance_prob*100).toFixed(1)}%` +
     `  temp=${temp}  lat=${d.latency_ms.toFixed(1)}ms  drop=${d.drop_rate_pct.toFixed(2)}%  src=${d.source}`;
   el.prepend(line);
   while (el.children.length > LOG_MAX) el.lastChild.remove();
 }
 
-// ---- Contrast Demo Logic --------------------------------------------------
-// Sequence:
-//   Phase 0 (5 s countdown): overlay shows "Apply imbalance load now"
-//   Phase 1 (observe):       overlay shows "Observing — watching for fault detection"
-//                             waits until label flips to "imbalance" (max 20 s)
-//   Phase 2 (5 s):           overlay shows "FAULT DETECTED" in red
-//   Phase 3 (observe):       overlay shows "Remove load — watching for normal" (max 20 s)
-//   Phase 4 (complete):      overlay shows "Demo complete" then closes
-
+// ── Contrast Demo ──────────────────────────────────────────────────────────
 const DEMO_PHASES = [
   { title: '\u2699\uFE0F Contrast Demo', desc: 'Tape a coin or bolt to the motor shaft now.\nThe detector will flag the imbalance within 1\u20132 inference cycles.', countdown: 5, state: 'Get ready\u2026' },
   { title: '\u{1F50D} Observing', desc: 'Load applied. Watching for fault detection\u2026', countdown: null, state: 'Normal (baseline)' },
@@ -717,7 +940,7 @@ const DEMO_PHASES = [
   { title: '\u2705 Demo Complete', desc: 'The model correctly detected the fault and cleared on load removal.', countdown: 3, state: 'Complete' },
 ];
 
-let demoPhase      = -1;   // -1 = not running
+let demoPhase      = -1;
 let demoTimer      = null;
 let demoCountVal   = 0;
 let demoObserveTimer = null;
@@ -747,12 +970,9 @@ function showDemoPhase(phase) {
   document.getElementById('demo-overlay').classList.add('visible');
 
   if (p.countdown !== null) {
-    // Timed phase: count down then advance
     runCountdown(p.countdown, () => showDemoPhase(phase + 1));
   } else {
-    // Observe phase: wait for label change (telemetry-driven via advanceDemoOnTelemetry)
     document.getElementById('demo-countdown').textContent = '\u2022\u2022\u2022';
-    // Safety timeout: 20 s max per observe phase
     demoObserveTimer = setTimeout(() => showDemoPhase(phase + 1), 20000);
   }
 }
@@ -774,17 +994,15 @@ function runCountdown(seconds, onDone) {
 
 function advanceDemoOnTelemetry(label) {
   if (demoPhase === 1 && label === 'imbalance') {
-    // Phase 1 observe: fault detected — advance
     clearTimeout(demoObserveTimer);
     showDemoPhase(2);
   } else if (demoPhase === 3 && label === 'normal') {
-    // Phase 3 observe: returned to normal — advance
     clearTimeout(demoObserveTimer);
     showDemoPhase(4);
   }
 }
 
-// ---- Tabs -----------------------------------------------------------------
+// ── Tabs ───────────────────────────────────────────────────────────────────
 function switchTab(name, btn) {
   document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
@@ -792,15 +1010,16 @@ function switchTab(name, btn) {
   btn.classList.add('active');
 }
 
-// ---- Theme ----------------------------------------------------------------
+// ── Theme ──────────────────────────────────────────────────────────────────
 function toggleTheme() {
   const html = document.documentElement;
   html.setAttribute('data-theme',
     html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
 }
 
-// ---- Init -----------------------------------------------------------------
+// ── Init ───────────────────────────────────────────────────────────────────
 window.addEventListener('load', () => {
+  applyModeUI('high_power');   // default until server responds
   connect();
   window.addEventListener('resize', () => {
     trendChart.draw();

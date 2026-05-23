@@ -10,13 +10,21 @@
 #
 # Environment variables:
 #   EDGEGUARD_MODE            'bridge' (default) or 'udp'
+#   EDGEGUARD_INFERENCE_MODE  'high_power' (default) or 'low_power'
+#                             Sets the startup mode; overridden at runtime
+#                             via POST /api/mode
 #   EDGEGUARD_DEMO            Path to a .jsonl replay file (activates demo mode)
 #   EDGEGUARD_BRIDGE_FIFO     Override Bridge IPC FIFO path
 #   EDGEGUARD_MAX_CLIENTS     Max simultaneous WebSocket clients (default: 10)
 #   EDGEGUARD_ALLOWED_ORIGINS Comma-separated allowed WS origins (empty = any)
-#                             Note: browsers may send 'null' for local file://
 #
-# Then open http://<pi-ip>:8080 in a browser.
+# Inference mode API:
+#   GET  /api/mode  -> { "mode": "high_power" | "low_power" }
+#   POST /api/mode  body { "mode": "high_power" | "low_power" }
+#                -> { "mode": "..." }  (echoes the new mode)
+#
+# The active inference_mode is injected into every broadcast telemetry
+# JSON so the frontend always stays in sync after reconnect.
 
 import asyncio
 import json
@@ -24,46 +32,68 @@ import logging
 import os
 import sys
 from pathlib import Path
+from typing import Literal
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
+from pydantic import BaseModel
 
 log = logging.getLogger("edgeguard.server")
 
 app = FastAPI(title="EdgeGuard Dashboard")
 
-# Absolute path to main.py (one level up from this file)
+# Absolute path to main.py
 MAIN_PY = str(Path(__file__).resolve().parent.parent / "main.py")
 
-_DEMO_FILE       = os.environ.get("EDGEGUARD_DEMO",    "")
-_MODE            = os.environ.get("EDGEGUARD_MODE",    "bridge")
-_BRIDGE_FIFO     = os.environ.get("EDGEGUARD_BRIDGE_FIFO", "")
+_DEMO_FILE       = os.environ.get("EDGEGUARD_DEMO",           "")
+_MODE            = os.environ.get("EDGEGUARD_MODE",           "bridge")
+_BRIDGE_FIFO     = os.environ.get("EDGEGUARD_BRIDGE_FIFO",    "")
 _MAX_CLIENTS     = int(os.environ.get("EDGEGUARD_MAX_CLIENTS", "10"))
 _ALLOWED_ORIGINS = [
     o.strip() for o in os.environ.get("EDGEGUARD_ALLOWED_ORIGINS", "").split(",")
     if o.strip()
 ]
 
-# Mutable set of live WebSocket clients
+# ── Inference mode state (mutable at runtime) ─────────────────────────────
+# 'high_power': MCU triggers MPU ONNX inference (default)
+# 'low_power' : MCU anomaly flag only; MPU model skipped
+InferenceMode = Literal["high_power", "low_power"]
+_inference_mode: InferenceMode = os.environ.get(  # type: ignore[assignment]
+    "EDGEGUARD_INFERENCE_MODE", "high_power"
+)
+
+
+class ModeRequest(BaseModel):
+    mode: InferenceMode
+
+
+# ── Clients & queue ───────────────────────────────────────────────────────
 _clients: set[WebSocket] = set()
-
-# FIX FLAW-05: Decouple reader from broadcast with a bounded queue.
-# Prevents slow WebSocket clients from creating back-pressure that stalls
-# the main inference loop in main.py.
 _telemetry_queue: asyncio.Queue = asyncio.Queue(maxsize=50)
-
-# Strong references to background tasks -- prevents Python GC from cancelling them
 _background_tasks: set[asyncio.Task] = set()
 
 
+# ── REST endpoints ────────────────────────────────────────────────────────
+
+@app.get("/api/mode")
+async def get_mode() -> JSONResponse:
+    return JSONResponse({"mode": _inference_mode})
+
+
+@app.post("/api/mode")
+async def set_mode(req: ModeRequest) -> JSONResponse:
+    global _inference_mode
+    _inference_mode = req.mode
+    log.info("[Server] Inference mode set to: %s", _inference_mode)
+    return JSONResponse({"mode": _inference_mode})
+
+
+# ── Broadcast helpers ──────────────────────────────────────────────────────
+
 async def _broadcast(message: str) -> None:
-    """
-    Send message to all clients concurrently with a per-client send timeout.
-    Dead/slow clients are removed from _clients.
-    """
+    """Send message to all clients concurrently with per-client timeout."""
     if not _clients:
         return
-
     dead: set[WebSocket] = set()
     sends = {
         ws: asyncio.create_task(
@@ -80,10 +110,17 @@ async def _broadcast(message: str) -> None:
 
 
 async def _broadcast_worker() -> None:
-    """Consumes telemetry from the queue and broadcasts to all clients."""
+    """Consume telemetry from queue, inject inference_mode, broadcast."""
     while True:
         try:
-            message = await _telemetry_queue.get()
+            raw = await _telemetry_queue.get()
+            # Inject active inference_mode so frontend always knows
+            try:
+                payload = json.loads(raw)
+                payload["inference_mode"] = _inference_mode
+                message = json.dumps(payload)
+            except Exception:
+                message = raw
             await _broadcast(message)
             _telemetry_queue.task_done()
         except asyncio.CancelledError:
@@ -92,12 +129,17 @@ async def _broadcast_worker() -> None:
             log.error("[Server] Broadcast worker error: %s", exc)
 
 
+# ── Pipeline reader ───────────────────────────────────────────────────────
+
 async def _pipeline_reader() -> None:
     """
-    Spawn main.py, read its stdout line-by-line, broadcast each JSON
-    telemetry line to all WebSocket clients.
+    Spawn main.py with the current --inference-mode flag.
+    The flag is read once at spawn time; to change mode, the pipeline
+    restarts automatically via _pipeline_reader_with_restart() when the
+    mode changes (see _mode_watcher).
     """
-    cmd = [sys.executable, MAIN_PY, "--mode", _MODE]
+    cmd = [sys.executable, MAIN_PY, "--mode", _MODE,
+           "--inference-mode", _inference_mode]
     if _DEMO_FILE:
         cmd += ["--demo", _DEMO_FILE]
     if _BRIDGE_FIFO and _MODE == "bridge":
@@ -121,8 +163,7 @@ async def _pipeline_reader() -> None:
         if not text:
             continue
         try:
-            json.loads(text)   # validate JSON before broadcasting
-            # FIX FLAW-05: Non-blocking put -- drop telemetry if dashboard is too slow
+            json.loads(text)
             try:
                 _telemetry_queue.put_nowait(text)
             except asyncio.QueueFull:
@@ -130,7 +171,6 @@ async def _pipeline_reader() -> None:
         except json.JSONDecodeError:
             pass
 
-    # Ensure subprocess is fully cleaned up
     try:
         proc.kill()
     except ProcessLookupError:
@@ -139,8 +179,9 @@ async def _pipeline_reader() -> None:
 
 
 async def _pipeline_reader_with_restart() -> None:
-    """Wraps _pipeline_reader() with automatic restart on crash."""
+    """Restart the pipeline on crash or mode change."""
     restart_delay = 2.0
+    last_mode = _inference_mode
     while True:
         try:
             await _pipeline_reader()
@@ -148,22 +189,50 @@ async def _pipeline_reader_with_restart() -> None:
             break
         except Exception as exc:
             log.error("[Server] Pipeline reader raised %s -- restarting.", exc)
+        # Brief pause; also allows mode-change restarts to coalesce
         await asyncio.sleep(restart_delay)
+
+
+async def _mode_watcher() -> None:
+    """
+    Poll _inference_mode every second.  When it changes, cancel the
+    current pipeline task so _pipeline_reader_with_restart respawns
+    main.py with the new --inference-mode flag.
+    """
+    global _pipeline_task
+    last_mode = _inference_mode
+    while True:
+        await asyncio.sleep(1.0)
+        if _inference_mode != last_mode:
+            last_mode = _inference_mode
+            log.info("[Server] Mode changed -> %s, restarting pipeline.", last_mode)
+            if _pipeline_task and not _pipeline_task.done():
+                _pipeline_task.cancel()
+                # A new task is created in startup; cancel just stops the current one
+                # so the restart loop below re-creates it.
+                _pipeline_task = asyncio.create_task(_pipeline_reader_with_restart())
+                _background_tasks.add(_pipeline_task)
+                _pipeline_task.add_done_callback(_background_tasks.discard)
+
+
+_pipeline_task: asyncio.Task | None = None
 
 
 @app.on_event("startup")
 async def startup() -> None:
-    # Store strong references so Python's GC does not cancel the tasks
-    task1 = asyncio.create_task(_pipeline_reader_with_restart())
+    global _pipeline_task
+    _pipeline_task = asyncio.create_task(_pipeline_reader_with_restart())
     task2 = asyncio.create_task(_broadcast_worker())
-    
-    _background_tasks.add(task1)
-    _background_tasks.add(task2)
-    
-    task1.add_done_callback(_background_tasks.discard)
-    task2.add_done_callback(_background_tasks.discard)
-    
-    log.info("[Server] Dashboard started. mode=%s max_clients=%d", _MODE, _MAX_CLIENTS)
+    task3 = asyncio.create_task(_mode_watcher())
+
+    for t in (_pipeline_task, task2, task3):
+        _background_tasks.add(t)
+        t.add_done_callback(_background_tasks.discard)
+
+    log.info(
+        "[Server] Dashboard started. transport=%s inference_mode=%s max_clients=%d",
+        _MODE, _inference_mode, _MAX_CLIENTS,
+    )
 
 
 @app.websocket("/ws")
@@ -174,7 +243,6 @@ async def websocket_endpoint(ws: WebSocket) -> None:
 
     if _ALLOWED_ORIGINS:
         origin = ws.headers.get("origin", "")
-        # Note: Browsers send 'null' for file:// or sandboxed origins.
         if origin not in _ALLOWED_ORIGINS and origin != "null":
             await ws.close(code=1008)
             return
