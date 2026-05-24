@@ -1,1032 +1,231 @@
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>EdgeGuard</title>
-<style>
-  :root {
-    --bg:        #0f1117;
-    --surface:   #1a1d27;
-    --surface2:  #22263a;
-    --border:    #2e3250;
-    --text:      #e2e8f0;
-    --muted:     #7c85a2;
-    --faint:     #3d4466;
-    --green:     #22c55e;
-    --red:       #ef4444;
-    --amber:     #f59e0b;
-    --teal:      #2dd4bf;
-    --teal-dim:  #134e4a;
-    --lp-accent: #a78bfa;   /* Low-Power purple accent */
-    --lp-dim:    #3b2f6e;
-    --radius:    0.5rem;
-    --mono:      'JetBrains Mono', 'Fira Code', monospace;
-  }
-  [data-theme="light"] {
-    --bg:       #f8fafc;
-    --surface:  #ffffff;
-    --surface2: #f1f5f9;
-    --border:   #e2e8f0;
-    --text:     #0f172a;
-    --muted:    #64748b;
-    --faint:    #cbd5e1;
-    --lp-dim:   #ede9fe;
-  }
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  html { font-size: 16px; }
-  body {
-    font-family: 'Inter', system-ui, sans-serif;
-    background: var(--bg);
-    color: var(--text);
-    min-height: 100dvh;
-    display: flex;
-    flex-direction: column;
-  }
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EdgeGuard Dashboard</title>
+  <style>
+    :root {
+      --color-bg:      #0e1117;
+      --color-surface: #161b22;
+      --color-border:  #30363d;
+      --color-text:    #e6edf3;
+      --color-muted:   #8b949e;
+      --color-accent:  #58a6ff;
+      --color-warn:    #d29922;
+      --color-error:   #f85149;
+      --color-ok:      #3fb950;
+      --font:          'Inter', system-ui, sans-serif;
+      --radius:        8px;
+      --transition:    180ms cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: var(--font);
+      background: var(--color-bg);
+      color: var(--color-text);
+      min-height: 100dvh;
+      display: grid;
+      grid-template-rows: auto 1fr;
+    }
+    header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 24px;
+      border-bottom: 1px solid var(--color-border);
+      background: var(--color-surface);
+    }
+    .logo { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 1.05rem; }
+    .status-pill {
+      font-size: 0.75rem; padding: 3px 10px;
+      border-radius: 999px;
+      background: color-mix(in oklab, var(--color-ok) 15%, transparent);
+      color: var(--color-ok);
+      border: 1px solid color-mix(in oklab, var(--color-ok) 40%, transparent);
+    }
+    main {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      gap: 16px; padding: 24px; align-content: start;
+    }
+    .card {
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius);
+      padding: 20px;
+    }
+    .card-title {
+      font-size: 0.75rem; text-transform: uppercase;
+      letter-spacing: 0.08em; color: var(--color-muted); margin-bottom: 12px;
+    }
+    .big-val { font-size: 2.2rem; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1; }
+    .sub-val  { font-size: 0.85rem; color: var(--color-muted); margin-top: 6px; }
+    .diag-card { grid-column: span 2; }
+    @media (max-width: 700px) { .diag-card { grid-column: span 1; } }
+    .diag-label {
+      font-size: 1.15rem; font-weight: 600;
+      padding: 8px 14px; border-radius: var(--radius);
+      background: var(--color-bg); border: 1px solid var(--color-border);
+      transition: background var(--transition), color var(--transition), border-color var(--transition);
+    }
+    .diag-label.warn  { background: color-mix(in oklab, var(--color-warn)  15%, transparent); color: var(--color-warn);  border-color: color-mix(in oklab, var(--color-warn)  40%, transparent); }
+    .diag-label.error { background: color-mix(in oklab, var(--color-error) 15%, transparent); color: var(--color-error); border-color: color-mix(in oklab, var(--color-error) 40%, transparent); }
+    .diag-label.ok    { background: color-mix(in oklab, var(--color-ok)    15%, transparent); color: var(--color-ok);    border-color: color-mix(in oklab, var(--color-ok)    40%, transparent); }
 
-  /* NAV */
-  nav {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0.75rem 1.5rem;
-    background: var(--surface);
-    border-bottom: 1px solid var(--border);
-    position: sticky;
-    top: 0;
-    z-index: 10;
-  }
-  .logo {
-    display: flex; align-items: center; gap: 0.6rem;
-    font-weight: 700; font-size: 1.1rem; letter-spacing: -0.02em;
-  }
-  .logo svg { color: var(--teal); }
-  .nav-right { display: flex; align-items: center; gap: 1rem; }
-  .conn-dot {
-    width: 8px; height: 8px; border-radius: 50%;
-    background: var(--red);
-    transition: background 0.3s;
-  }
-  .conn-dot.live { background: var(--green); }
-  .conn-label { font-size: 0.75rem; color: var(--muted); }
-  .theme-btn {
-    background: none; border: 1px solid var(--border);
-    border-radius: var(--radius); padding: 0.3rem 0.6rem;
-    color: var(--muted); cursor: pointer; font-size: 0.75rem;
-    transition: color 0.2s, border-color 0.2s;
-  }
-  .theme-btn:hover { color: var(--text); border-color: var(--teal); }
-
-  /* ── MODE SWITCH ─────────────────────────────────────────────────────── */
-  .mode-switch {
-    display: flex;
-    align-items: center;
-    background: var(--surface2);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    overflow: hidden;
-    font-size: 0.72rem;
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    height: 30px;
-    user-select: none;
-  }
-  .mode-btn {
-    padding: 0 0.85rem;
-    height: 100%;
-    display: flex; align-items: center; gap: 0.35rem;
-    cursor: pointer;
-    border: none;
-    background: none;
-    color: var(--muted);
-    transition: background 0.2s, color 0.2s;
-    white-space: nowrap;
-  }
-  .mode-btn svg { flex-shrink: 0; }
-  .mode-btn.active-lp {
-    background: var(--lp-dim);
-    color: var(--lp-accent);
-  }
-  .mode-btn.active-hp {
-    background: var(--teal-dim);
-    color: var(--teal);
-  }
-  .mode-divider {
-    width: 1px; height: 100%;
-    background: var(--border);
-    flex-shrink: 0;
-  }
-
-  /* ── MODE BANNER (sits just below nav when active) ───────────────────── */
-  #mode-banner {
-    display: none;
-    align-items: center;
-    justify-content: center;
-    gap: 0.6rem;
-    padding: 0.3rem 1.5rem;
-    font-size: 0.72rem;
-    font-weight: 600;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-    border-bottom: 1px solid var(--border);
-    transition: background 0.3s;
-  }
-  #mode-banner.lp {
-    display: flex;
-    background: rgba(167,139,250,0.08);
-    color: var(--lp-accent);
-    border-color: var(--lp-dim);
-  }
-  #mode-banner.hp {
-    display: flex;
-    background: rgba(45,212,191,0.06);
-    color: var(--teal);
-    border-color: var(--teal-dim);
-  }
-
-  /* DISCONNECT BANNER */
-  #disconnect-banner {
-    display: none;
-    position: fixed;
-    top: 0; left: 0; right: 0;
-    z-index: 100;
-    background: var(--red);
-    color: #fff;
-    text-align: center;
-    font-size: 0.8rem;
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    padding: 0.45rem 1rem;
-    animation: banner-slide-in 0.25s ease;
-  }
-  #disconnect-banner.visible { display: block; }
-  @keyframes banner-slide-in {
-    from { transform: translateY(-100%); opacity: 0; }
-    to   { transform: translateY(0);     opacity: 1; }
-  }
-
-  /* TABS */
-  .tabs {
-    display: flex;
-    gap: 0;
-    padding: 0 1.5rem;
-    background: var(--surface);
-    border-bottom: 1px solid var(--border);
-  }
-  .tab-btn {
-    background: none; border: none; cursor: pointer;
-    padding: 0.75rem 1.25rem;
-    font-size: 0.875rem; font-weight: 500;
-    color: var(--muted);
-    border-bottom: 2px solid transparent;
-    transition: color 0.2s, border-color 0.2s;
-  }
-  .tab-btn.active { color: var(--teal); border-bottom-color: var(--teal); }
-  .tab-btn:hover:not(.active) { color: var(--text); }
-
-  /* MAIN */
-  main { flex: 1; padding: 1.5rem; max-width: 1100px; margin: 0 auto; width: 100%; }
-  .panel { display: none; }
-  .panel.active { display: block; }
-
-  /* OPERATOR PANEL */
-  .health-card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 2rem;
-    display: flex;
-    align-items: center;
-    gap: 2rem;
-    margin-bottom: 1.5rem;
-    flex-wrap: wrap;
-    transition: border-color 0.3s;
-  }
-  .health-card.lp-active {
-    border-color: var(--lp-dim);
-    box-shadow: 0 0 0 1px var(--lp-dim);
-  }
-
-  /* ── MODE BADGE on health card ───────────────────────────────────── */
-  .mode-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.3rem;
-    font-size: 0.65rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.07em;
-    padding: 0.18rem 0.55rem;
-    border-radius: var(--radius);
-    margin-top: 0.45rem;
-    transition: opacity 0.25s;
-  }
-  .mode-badge.lp { background: var(--lp-dim);   color: var(--lp-accent); }
-  .mode-badge.hp { background: var(--teal-dim); color: var(--teal); }
-
-  .health-indicator {
-    width: 96px; height: 96px; border-radius: 50%;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 2rem; flex-shrink: 0;
-    transition: background 0.4s, box-shadow 0.4s;
-    background: var(--teal-dim);
-    box-shadow: 0 0 0 0 transparent;
-  }
-  .health-indicator.normal    { background: #14532d; box-shadow: 0 0 24px 4px rgba(34,197,94,0.25); }
-  .health-indicator.imbalance { background: #7f1d1d; box-shadow: 0 0 24px 4px rgba(239,68,68,0.35); animation: pulse-red 1s ease-in-out infinite; }
-  .health-indicator.buffering { background: var(--surface2); }
-  @keyframes pulse-red {
-    0%,100% { box-shadow: 0 0 24px 4px rgba(239,68,68,0.25); }
-    50%      { box-shadow: 0 0 40px 8px rgba(239,68,68,0.55); }
-  }
-  .health-text { flex: 1; min-width: 180px; }
-  .health-text h2 { font-size: 2rem; font-weight: 700; letter-spacing: -0.03em; }
-  .health-text .sublabel { font-size: 0.875rem; color: var(--muted); margin-top: 0.25rem; }
-  .health-text .prob {
-    font-size: 0.8rem; margin-top: 0.5rem;
-    font-family: var(--mono); color: var(--muted);
-  }
-
-  /* ── MPU-ONLY section (dims in LP mode) ──────────────────────────── */
-  .mpu-section {
-    transition: opacity 0.35s, filter 0.35s;
-  }
-  .mpu-section.dimmed {
-    opacity: 0.3;
-    filter: grayscale(0.6);
-    pointer-events: none;
-  }
-  .mpu-section.dimmed::after {
-    /* optional overlay label — rendered via JS */
-  }
-
-  /* CONTRAST DEMO BUTTON */
-  .demo-btn {
-    flex-shrink: 0;
-    padding: 0.6rem 1.2rem;
-    border-radius: var(--radius);
-    border: 1px solid var(--border);
-    background: var(--surface2);
-    color: var(--text);
-    font-size: 0.8rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition: background 0.2s, border-color 0.2s, color 0.2s;
-    letter-spacing: 0.03em;
-  }
-  .demo-btn:hover  { background: var(--amber); border-color: var(--amber); color: #000; }
-  .demo-btn:active { transform: scale(0.97); }
-  .demo-btn:disabled { opacity: 0.45; cursor: not-allowed; }
-
-  /* CONTRAST DEMO OVERLAY */
-  #demo-overlay {
-    display: none;
-    position: fixed;
-    inset: 0;
-    z-index: 200;
-    background: rgba(0,0,0,0.72);
-    align-items: center;
-    justify-content: center;
-    flex-direction: column;
-    gap: 1rem;
-    animation: fade-in 0.2s ease;
-  }
-  #demo-overlay.visible { display: flex; }
-  @keyframes fade-in { from { opacity:0; } to { opacity:1; } }
-  .demo-overlay-box {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 1rem;
-    padding: 2.5rem 3rem;
-    text-align: center;
-    max-width: 420px;
-    width: 90%;
-  }
-  .demo-overlay-box h3 {
-    font-size: 1.4rem;
-    font-weight: 700;
-    margin-bottom: 0.5rem;
-    letter-spacing: -0.02em;
-  }
-  .demo-overlay-box p {
-    color: var(--muted);
-    font-size: 0.875rem;
-    margin-bottom: 1.5rem;
-    line-height: 1.5;
-  }
-  #demo-countdown {
-    font-size: 4rem;
-    font-weight: 900;
-    font-family: var(--mono);
-    color: var(--amber);
-    line-height: 1;
-    margin-bottom: 0.5rem;
-    transition: transform 0.15s ease;
-  }
-  #demo-countdown.tick { transform: scale(1.18); }
-  .demo-state-label {
-    font-size: 0.75rem;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    color: var(--muted);
-  }
-  #demo-current-state {
-    font-size: 1rem;
-    font-weight: 700;
-    margin-top: 0.25rem;
-    color: var(--teal);
-  }
-  .demo-cancel-btn {
-    margin-top: 1.25rem;
-    background: none;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    color: var(--muted);
-    font-size: 0.75rem;
-    padding: 0.35rem 0.9rem;
-    cursor: pointer;
-    transition: color 0.2s, border-color 0.2s;
-  }
-  .demo-cancel-btn:hover { color: var(--text); border-color: var(--text); }
-
-  /* KPI row */
-  .kpi-row {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-    gap: 1rem;
-    margin-bottom: 1.5rem;
-  }
-  .kpi {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 1rem 1.25rem;
-  }
-  .kpi .label { font-size: 0.7rem; text-transform: uppercase;
-    letter-spacing: 0.08em; color: var(--muted); margin-bottom: 0.4rem; }
-  .kpi .value {
-    font-size: 1.5rem; font-weight: 700;
-    font-family: var(--mono); color: var(--teal);
-  }
-  .kpi .unit { font-size: 0.75rem; color: var(--muted); margin-left: 0.2rem; }
-
-  /* TREND CHART */
-  .chart-card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 1.25rem;
-    margin-bottom: 1.5rem;
-  }
-  .chart-title {
-    font-size: 0.75rem; text-transform: uppercase;
-    letter-spacing: 0.08em; color: var(--muted); margin-bottom: 1rem;
-  }
-  canvas { display: block; width: 100% !important; }
-
-  /* ENGINEERING PANEL */
-  .eng-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-    gap: 1rem;
-    margin-bottom: 1.5rem;
-  }
-  .eng-card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 1rem 1.25rem;
-  }
-  .eng-card .label { font-size: 0.7rem; text-transform: uppercase;
-    letter-spacing: 0.08em; color: var(--muted); margin-bottom: 0.4rem; }
-  .eng-card .value {
-    font-size: 1.75rem; font-weight: 700;
-    font-family: var(--mono);
-  }
-  .eng-card .unit { font-size: 0.8rem; color: var(--muted); }
-
-  /* LOG */
-  .log-card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 1rem;
-  }
-  .log-title { font-size: 0.75rem; text-transform: uppercase;
-    letter-spacing: 0.08em; color: var(--muted); margin-bottom: 0.75rem; }
-  #log-lines {
-    font-family: var(--mono);
-    font-size: 0.72rem;
-    color: var(--muted);
-    max-height: 220px;
-    overflow-y: auto;
-    display: flex;
-    flex-direction: column-reverse;
-    gap: 2px;
-  }
-  .log-line { padding: 2px 0; border-bottom: 1px solid var(--faint); }
-  .log-line.anomaly { color: var(--red); }
-  .log-line.normal  { color: var(--green); }
-
-  /* STATUS BAR */
-  .status-bar {
-    padding: 0.4rem 1.5rem;
-    background: var(--surface);
-    border-top: 1px solid var(--border);
-    font-size: 0.7rem;
-    color: var(--muted);
-    display: flex; gap: 1.5rem; flex-wrap: wrap;
-  }
-  #sb-mode {
-    margin-left: auto;
-    font-weight: 700;
-  }
-  #sb-mode.lp { color: var(--lp-accent); }
-  #sb-mode.hp { color: var(--teal); }
-
-  /* RESPONSIVE */
-  @media (max-width: 600px) {
-    .health-card { flex-direction: column; text-align: center; }
-    .health-text h2 { font-size: 1.5rem; }
-    .mode-switch { font-size: 0.65rem; }
-  }
-</style>
+    /* Fault overlay — shown ONLY when imbalance_prob > 0.8 */
+    .fault-overlay {
+      display: none; position: fixed; inset: 0;
+      background: color-mix(in oklab, var(--color-error) 12%, var(--color-bg));
+      border: 2px solid var(--color-error); z-index: 100;
+      align-items: center; justify-content: center; flex-direction: column; gap: 16px;
+      animation: pulse-border 1.4s ease-in-out infinite;
+    }
+    body[data-fault="true"] .fault-overlay { display: flex; }
+    .fault-overlay h2 { font-size: 1.8rem; color: var(--color-error); }
+    .fault-overlay p  { color: var(--color-muted); text-align: center; max-width: 36ch; }
+    .fault-overlay button {
+      margin-top: 8px; padding: 10px 24px;
+      border-radius: var(--radius); border: 1px solid var(--color-error);
+      background: transparent; color: var(--color-error);
+      cursor: pointer; font-size: 0.9rem;
+      transition: background var(--transition);
+    }
+    .fault-overlay button:hover { background: color-mix(in oklab, var(--color-error) 15%, transparent); }
+    @keyframes pulse-border {
+      0%, 100% { border-color: var(--color-error); }
+      50%       { border-color: transparent; }
+    }
+    .prob-bar-track { height: 6px; border-radius: 3px; background: var(--color-border); overflow: hidden; margin-top: 10px; }
+    .prob-bar-fill  {
+      height: 100%; border-radius: 3px; background: var(--color-accent);
+      transition: width 600ms cubic-bezier(0.16, 1, 0.3, 1), background 400ms ease; width: 0%;
+    }
+    .prob-bar-fill.warn  { background: var(--color-warn); }
+    .prob-bar-fill.error { background: var(--color-error); }
+    .tune-badge {
+      display: none; font-size: 0.7rem; padding: 2px 8px; border-radius: 999px;
+      background: color-mix(in oklab, var(--color-accent) 15%, transparent);
+      color: var(--color-accent);
+      border: 1px solid color-mix(in oklab, var(--color-accent) 30%, transparent);
+      margin-left: 8px;
+    }
+    .tune-badge.visible { display: inline; }
+  </style>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
-
-<!-- DISCONNECT BANNER -->
-<div id="disconnect-banner" role="alert" aria-live="assertive">
-  &#9888; Pipeline disconnected &mdash; attempting to reconnect&hellip;
-</div>
-
-<!-- NAV -->
-<nav>
-  <div class="logo">
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
-         stroke="currentColor" stroke-width="2" stroke-linecap="round"
-         stroke-linejoin="round" aria-label="EdgeGuard">
-      <path d="M12 2L2 7l10 5 10-5-10-5z"/>
-      <path d="M2 17l10 5 10-5"/>
-      <path d="M2 12l10 5 10-5"/>
+  <div class="fault-overlay" role="alertdialog" aria-modal="true" aria-labelledby="fault-title">
+    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="color:var(--color-error)">
+      <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+      <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
     </svg>
-    EdgeGuard
-  </div>
-  <div class="nav-right">
-    <!-- ── MODE SWITCH ── -->
-    <div class="mode-switch" role="group" aria-label="Inference mode">
-      <button class="mode-btn" id="btn-lp"
-              onclick="setMode('low_power')"
-              title="Low Power: MCU edge model only (fast, lower accuracy)">
-        <!-- moon / sleep icon -->
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
-             stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
-          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
-        </svg>
-        Low Power
-      </button>
-      <div class="mode-divider"></div>
-      <button class="mode-btn" id="btn-hp"
-              onclick="setMode('high_power')"
-              title="High Power: MCU triggers MPU for full ONNX inference">
-        <!-- zap icon -->
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
-             stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
-          <polyline points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
-        </svg>
-        High Power
-      </button>
-    </div>
-    <div class="conn-dot" id="conn-dot"></div>
-    <span class="conn-label" id="conn-label">Connecting&hellip;</span>
-    <button class="theme-btn" onclick="toggleTheme()" aria-label="Toggle theme">&#9789;</button>
-  </div>
-</nav>
-
-<!-- MODE BANNER -->
-<div id="mode-banner" role="status" aria-live="polite">
-  <span id="mode-banner-text"></span>
-</div>
-
-<!-- TABS -->
-<div class="tabs" role="tablist">
-  <button class="tab-btn active" role="tab" onclick="switchTab('operator', this)">Operator</button>
-  <button class="tab-btn" role="tab" onclick="switchTab('engineering', this)">Engineering</button>
-</div>
-
-<!-- CONTRAST DEMO OVERLAY -->
-<div id="demo-overlay" role="dialog" aria-modal="true" aria-label="Contrast demo">
-  <div class="demo-overlay-box">
-    <h3 id="demo-overlay-title">&#9881; Contrast Demo</h3>
-    <p id="demo-overlay-desc">Apply the imbalance load now (tape a coin to the shaft).<br>The model will detect the fault within the next inference window.</p>
-    <div id="demo-countdown">5</div>
-    <div class="demo-state-label">Current test state</div>
-    <div id="demo-current-state">Waiting&hellip;</div>
-    <button class="demo-cancel-btn" onclick="cancelDemo()">Cancel</button>
-  </div>
-</div>
-
-<!-- MAIN -->
-<main>
-
-  <!-- OPERATOR PANEL -->
-  <div class="panel active" id="panel-operator">
-
-    <div class="health-card" id="health-card">
-      <div class="health-indicator buffering" id="health-indicator">&#x2B58;</div>
-      <div class="health-text">
-        <div class="sublabel">Motor status</div>
-        <h2 id="health-label">Buffering&hellip;</h2>
-        <div class="prob" id="health-prob">Waiting for data</div>
-        <!-- Mode badge shown inline under the status label -->
-        <div class="mode-badge lp" id="health-mode-badge" style="display:none">
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="none"
-               stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
-            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
-          </svg>
-          MCU only
-        </div>
-      </div>
-      <!-- Contrast Demo button -->
-      <button class="demo-btn" id="demo-trigger-btn"
-              onclick="startContrastDemo()"
-              title="Scripted contrast demo: shows normal &#x2192; imbalance &#x2192; normal">
-        &#9654; Run Contrast Demo
-      </button>
-    </div>
-
-    <div class="kpi-row">
-      <div class="kpi">
-        <div class="label">Anomaly prob</div>
-        <div class="value" id="kpi-anomaly">---<span class="unit">%</span></div>
-      </div>
-      <div class="kpi">
-        <div class="label">Motor temp (DS18B20)</div>
-        <div class="value" id="kpi-temp">---<span class="unit">&deg;C</span></div>
-      </div>
-      <div class="kpi mpu-section" id="kpi-source-card">
-        <div class="label">Inference source</div>
-        <div class="value" style="font-size:1rem;padding-top:0.4rem" id="kpi-source">---</div>
-      </div>
-      <div class="kpi mpu-section" id="kpi-latency-card">
-        <div class="label">Latency</div>
-        <div class="value" id="kpi-latency">---<span class="unit">ms</span></div>
-      </div>
-    </div>
-
-    <!-- Trend chart: always visible -->
-    <div class="chart-card">
-      <div class="chart-title">Anomaly probability &mdash; last 60 cycles</div>
-      <canvas id="trend-chart" height="120"></canvas>
-    </div>
-
-    <!-- MPU charts: dimmed in low-power mode -->
-    <div class="chart-card mpu-section" id="temp-chart-card">
-      <div class="chart-title">Motor temperature trend &mdash; DS18B20 (&deg;C)</div>
-      <canvas id="temp-chart" height="80"></canvas>
-    </div>
-
+    <h2 id="fault-title">Fault Detected</h2>
+    <p id="fault-diag">High imbalance probability detected.</p>
+    <button onclick="document.body.removeAttribute('data-fault')">Acknowledge</button>
   </div>
 
-  <!-- ENGINEERING PANEL -->
-  <div class="panel" id="panel-engineering">
-
-    <div class="eng-grid">
-      <div class="eng-card">
-        <div class="label">UDP drop rate</div>
-        <div class="value" id="eng-drop">---<span class="unit">%</span></div>
-      </div>
-      <div class="eng-card mpu-section" id="eng-latency-card">
-        <div class="label">Inference latency</div>
-        <div class="value" id="eng-latency">---<span class="unit">ms</span></div>
-      </div>
-      <div class="eng-card">
-        <div class="label">Window rows</div>
-        <div class="value" id="eng-rows">---</div>
-      </div>
-      <div class="eng-card mpu-section" id="eng-source-card">
-        <div class="label">Model source</div>
-        <div class="value" style="font-size:1.1rem;padding-top:0.3rem" id="eng-source">---</div>
-      </div>
-      <div class="eng-card mpu-section" id="eng-imbalance-card">
-        <div class="label">Imbalance prob (MPU)</div>
-        <div class="value" id="eng-imbalance">---<span class="unit">%</span></div>
-      </div>
-      <div class="eng-card mpu-section" id="eng-normal-card">
-        <div class="label">Normal prob (MPU)</div>
-        <div class="value" id="eng-normal">---<span class="unit">%</span></div>
-      </div>
+  <header>
+    <div class="logo">
+      <svg width="28" height="28" viewBox="0 0 28 28" fill="none" aria-label="EdgeGuard logo">
+        <rect x="2" y="2" width="24" height="24" rx="6" fill="#58a6ff" opacity=".15"/>
+        <path d="M6 14 L12 8 L18 14 L12 20 Z" stroke="#58a6ff" stroke-width="1.8" fill="none"/>
+        <circle cx="14" cy="14" r="2" fill="#58a6ff"/>
+        <path d="M20 10 L22 8 M20 18 L22 20" stroke="#58a6ff" stroke-width="1.5" stroke-linecap="round"/>
+      </svg>
+      EdgeGuard
     </div>
+    <span class="status-pill" id="conn-status">Connecting...</span>
+  </header>
 
-    <!-- Latency chart is MPU-specific -->
-    <div class="chart-card mpu-section" id="eng-latency-chart-card">
-      <div class="chart-title">Inference latency history (ms) &mdash; MPU</div>
-      <canvas id="latency-chart" height="100"></canvas>
+  <main>
+    <div class="card diag-card">
+      <div class="card-title">Diagnostic
+        <span class="tune-badge" id="tune-badge">⚡ Remote-tuned</span>
+      </div>
+      <div class="diag-label ok" id="diag-label">Nominal Operation</div>
+      <div class="sub-val" id="diag-sub">Waiting for first batch...</div>
     </div>
-
-    <div class="log-card">
-      <div class="log-title">Raw telemetry log (latest first)</div>
-      <div id="log-lines"></div>
+    <div class="card">
+      <div class="card-title">Imbalance Probability</div>
+      <div class="big-val" id="prob-val">—</div>
+      <div class="prob-bar-track"><div class="prob-bar-fill" id="prob-bar"></div></div>
+      <div class="sub-val" id="prob-sub">—</div>
     </div>
+    <div class="card">
+      <div class="card-title">Board Temperature</div>
+      <div class="big-val" id="temp-val">—</div>
+      <div class="sub-val" id="temp-sub">—</div>
+    </div>
+    <div class="card">
+      <div class="card-title">Model Confidence</div>
+      <div class="big-val" id="conf-val">—</div>
+      <div class="sub-val" id="conf-sub">Last inference</div>
+    </div>
+    <div class="card">
+      <div class="card-title">Trigger Source</div>
+      <div class="big-val" style="font-size:1.1rem;" id="src-val">—</div>
+      <div class="sub-val" id="src-sub">anomaly_trigger or sensor_batch</div>
+    </div>
+  </main>
 
-  </div>
+  <script>
+    const FAULT_GATE = 0.80;  // Phase 3 fix: real hardware event gate
+    const WS_URL    = `ws://${location.hostname}:8765`;
+    let ws, reconnectTimer;
 
-</main>
-
-<!-- STATUS BAR -->
-<div class="status-bar">
-  <span id="sb-ts">--:--:--</span>
-  <span id="sb-cycles">0 cycles</span>
-  <span id="sb-uptime">uptime 0s</span>
-  <span id="sb-mode" class="hp">HIGH POWER</span>
-</div>
-
-<script>
-// ── State ──────────────────────────────────────────────────────────────────
-const MAX_POINTS = 60;
-const state = {
-  anomalyHistory:  [],
-  latencyHistory:  [],
-  tempHistory:     [],
-  cycles:          0,
-  startTime:       Date.now(),
-  // 'low_power' | 'high_power'  — mirrors backend; loaded on connect
-  inferenceMode:   'high_power',
-};
-
-// ── Mode switch ────────────────────────────────────────────────────────────
-
-/**
- * Apply mode visually (no network call — call setMode() for that).
- */
-function applyModeUI(mode) {
-  state.inferenceMode = mode;
-  const isLP = (mode === 'low_power');
-
-  // Nav buttons
-  document.getElementById('btn-lp').className = 'mode-btn' + (isLP ? ' active-lp' : '');
-  document.getElementById('btn-hp').className = 'mode-btn' + (isLP ? '' : ' active-hp');
-
-  // Mode banner
-  const banner     = document.getElementById('mode-banner');
-  const bannerText = document.getElementById('mode-banner-text');
-  banner.className = isLP ? 'lp' : 'hp';
-  bannerText.textContent = isLP
-    ? '\u263D Low Power mode \u2014 MCU edge model only. MPU inference suspended.'
-    : '\u26A1 High Power mode \u2014 MCU + MPU full inference pipeline active.';
-
-  // Health card border
-  document.getElementById('health-card').classList.toggle('lp-active', isLP);
-
-  // Mode badge on health card
-  const badge = document.getElementById('health-mode-badge');
-  badge.style.display = isLP ? 'inline-flex' : 'none';
-
-  // Dim all MPU sections when LP
-  document.querySelectorAll('.mpu-section').forEach(el => {
-    el.classList.toggle('dimmed', isLP);
-  });
-
-  // Status bar
-  const sb = document.getElementById('sb-mode');
-  sb.textContent = isLP ? 'LOW POWER' : 'HIGH POWER';
-  sb.className   = isLP ? 'lp' : 'hp';
-}
-
-/**
- * Tell the backend to switch mode, then update UI.
- * POST /api/mode  body: { mode: 'low_power' | 'high_power' }
- */
-async function setMode(mode) {
-  if (mode === state.inferenceMode) return;
-  try {
-    await fetch('/api/mode', {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ mode }),
-    });
-  } catch (e) {
-    console.warn('[EdgeGuard] /api/mode POST failed (offline?)', e);
-  }
-  applyModeUI(mode);
-}
-
-/**
- * On WS connect, fetch current mode from backend so the UI is always
- * in sync if the server was restarted with a different default.
- */
-async function fetchCurrentMode() {
-  try {
-    const res  = await fetch('/api/mode');
-    const data = await res.json();
-    if (data.mode) applyModeUI(data.mode);
-  } catch (e) {
-    // server may not have the endpoint yet — default to high_power
-    applyModeUI('high_power');
-  }
-}
-
-// ── Mini chart (no dependencies) ──────────────────────────────────────────
-function MiniChart(canvasId, color, yMin, yMax, fillColor) {
-  const canvas = document.getElementById(canvasId);
-  const ctx    = canvas.getContext('2d');
-  this.data    = [];
-  this.color   = color;
-  this.yMin    = yMin;
-  this.yMax    = yMax;
-  this.fill    = fillColor || null;
-
-  this.push = function(val) {
-    this.data.push(val);
-    if (this.data.length > MAX_POINTS) this.data.shift();
-    this.draw();
-  };
-
-  this.draw = function() {
-    const W = canvas.offsetWidth  || 800;
-    const H = canvas.offsetHeight || 120;
-    canvas.width  = W;
-    canvas.height = H;
-    ctx.clearRect(0, 0, W, H);
-    if (this.data.length < 2) return;
-
-    const range = (this.yMax - this.yMin) || 1;
-    const xStep = W / (MAX_POINTS - 1);
-    const toY   = v => H - ((v - this.yMin) / range) * (H - 8) - 4;
-
-    if (this.fill) {
-      ctx.beginPath();
-      ctx.moveTo(0, H);
-      this.data.forEach((v, i) => {
-        const x = (MAX_POINTS - this.data.length + i) * xStep;
-        ctx.lineTo(x, toY(v));
-      });
-      ctx.lineTo((MAX_POINTS - 1) * xStep, H);
-      ctx.closePath();
-      ctx.fillStyle = this.fill;
-      ctx.fill();
+    function connect() {
+      ws = new WebSocket(WS_URL);
+      ws.onopen = () => {
+        document.getElementById('conn-status').textContent = 'Live';
+        document.getElementById('conn-status').style.color = 'var(--color-ok)';
+        clearTimeout(reconnectTimer);
+      };
+      ws.onmessage = ({ data }) => {
+        try { handleTelemetry(JSON.parse(data)); } catch (e) { console.warn('Bad WS payload', e); }
+      };
+      ws.onclose = () => {
+        document.getElementById('conn-status').textContent = 'Reconnecting...';
+        document.getElementById('conn-status').style.color = 'var(--color-warn)';
+        reconnectTimer = setTimeout(connect, 3000);
+      };
     }
 
-    ctx.beginPath();
-    ctx.strokeStyle = this.color;
-    ctx.lineWidth   = 2;
-    ctx.lineJoin    = 'round';
-    this.data.forEach((v, i) => {
-      const x = (MAX_POINTS - this.data.length + i) * xStep;
-      i === 0 ? ctx.moveTo(x, toY(v)) : ctx.lineTo(x, toY(v));
-    });
-    ctx.stroke();
+    function handleTelemetry(t) {
+      const prob = t.imbalance_prob ?? 0;
+      const temp = t.board_temp_c  ?? null;
+      const conf = t.confidence    ?? 0;
+      const diag = t.diagnostic    || t.label || '—';
+      const src  = t.source        || '—';
 
-    if (this.yMax === 1.0) {
-      ctx.beginPath();
-      ctx.strokeStyle = 'rgba(239,68,68,0.3)';
-      ctx.lineWidth   = 1;
-      ctx.setLineDash([4, 4]);
-      const ty = toY(0.5);
-      ctx.moveTo(0, ty); ctx.lineTo(W, ty);
-      ctx.stroke();
-      ctx.setLineDash([]);
+      document.getElementById('prob-val').textContent = (prob * 100).toFixed(1) + '%';
+      const bar = document.getElementById('prob-bar');
+      bar.style.width = (prob * 100) + '%';
+      bar.className = 'prob-bar-fill' + (prob > 0.8 ? ' error' : prob > 0.6 ? ' warn' : '');
+      document.getElementById('prob-sub').textContent = `Label: ${t.label ?? '—'}`;
+
+      const diagEl = document.getElementById('diag-label');
+      diagEl.textContent = diag;
+      diagEl.className   = 'diag-label ' + (prob > 0.8 ? 'error' : prob > 0.6 ? 'warn' : 'ok');
+      document.getElementById('diag-sub').textContent =
+        `Temp state: ${t.temp_state ?? '—'}  ·  Confidence: ${(conf * 100).toFixed(1)}%`;
+
+      if (temp !== null) {
+        document.getElementById('temp-val').textContent = temp.toFixed(1) + ' °C';
+        document.getElementById('temp-sub').textContent = temp >= 55 ? '⚠ Rising — check cooling' : 'Normal range';
+      }
+      document.getElementById('conf-val').textContent = (conf * 100).toFixed(1) + '%';
+      document.getElementById('src-val').textContent  = src;
+
+      if (t._remote_tuned) document.getElementById('tune-badge').classList.add('visible');
+
+      // Phase 3 fix: fault overlay gated on real telemetry
+      if (prob > FAULT_GATE) {
+        document.getElementById('fault-diag').textContent = diag;
+        document.body.setAttribute('data-fault', 'true');
+      }
     }
-  };
-}
 
-const trendChart   = new MiniChart('trend-chart',   '#2dd4bf', 0, 1,   'rgba(45,212,191,0.08)');
-const tempChart    = new MiniChart('temp-chart',    '#f59e0b', 15, 50,  'rgba(245,158,11,0.07)');
-const latencyChart = new MiniChart('latency-chart', '#a78bfa', 0, 100, 'rgba(167,139,250,0.08)');
-
-// ── WebSocket ──────────────────────────────────────────────────────────────
-let ws;
-let reconnectTimer;
-
-function connect() {
-  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  ws = new WebSocket(`${proto}://${location.host}/ws`);
-
-  ws.onopen = () => {
-    document.getElementById('conn-dot').classList.add('live');
-    document.getElementById('conn-label').textContent = 'Live';
-    document.getElementById('disconnect-banner').classList.remove('visible');
-    clearTimeout(reconnectTimer);
-    fetchCurrentMode();
-  };
-
-  ws.onclose = () => {
-    document.getElementById('conn-dot').classList.remove('live');
-    document.getElementById('conn-label').textContent = 'Reconnecting\u2026';
-    document.getElementById('disconnect-banner').classList.add('visible');
-    reconnectTimer = setTimeout(connect, 2000);
-  };
-
-  ws.onerror = () => ws.close();
-
-  ws.onmessage = (evt) => {
-    let d;
-    try { d = JSON.parse(evt.data); } catch { return; }
-    // If the server embeds the current mode in telemetry, honour it.
-    if (d.inference_mode && d.inference_mode !== state.inferenceMode) {
-      applyModeUI(d.inference_mode);
-    }
-    onTelemetry(d);
-  };
-}
-
-// ── Update UI ──────────────────────────────────────────────────────────────
-function onTelemetry(d) {
-  state.cycles++;
-
-  const label      = d.label      || 'buffering';
-  const anomalyP   = d.imbalance_prob ?? 0;
-  const normalP    = d.normal_prob    ?? 0;
-  const latency    = d.latency_ms     ?? 0;
-  const dropRate   = d.drop_rate_pct  ?? 0;
-  const nRows      = d.n_rows         ?? 0;
-  const source     = d.source         || '---';
-
-  const tempVal = (d.board_temp_c !== null && d.board_temp_c !== undefined)
-    ? d.board_temp_c.toFixed(1)
-    : '---';
-
-  // Health indicator
-  const indicator = document.getElementById('health-indicator');
-  const hlabel    = document.getElementById('health-label');
-  const hprob     = document.getElementById('health-prob');
-  indicator.className = 'health-indicator ' + label;
-  if (label === 'normal') {
-    indicator.innerHTML = '&#x2714;';
-    hlabel.textContent  = 'Normal';
-    hlabel.style.color  = 'var(--green)';
-  } else if (label === 'imbalance') {
-    indicator.innerHTML = '&#x26A0;';
-    hlabel.textContent  = 'Imbalance Detected';
-    hlabel.style.color  = 'var(--red)';
-  } else {
-    indicator.innerHTML = '&#x2B58;';
-    hlabel.textContent  = 'Buffering\u2026';
-    hlabel.style.color  = 'var(--muted)';
-  }
-  hprob.textContent = `normal ${(normalP*100).toFixed(1)}%  \u2502  imbalance ${(anomalyP*100).toFixed(1)}%`;
-
-  // KPIs
-  setText('kpi-anomaly', (anomalyP * 100).toFixed(1));
-  setText('kpi-temp',    tempVal);
-  setText('kpi-source',  source);
-  setText('kpi-latency', latency.toFixed(1));
-
-  // Engineering
-  setText('eng-drop',      dropRate.toFixed(2));
-  setText('eng-latency',   latency.toFixed(1));
-  setText('eng-rows',      nRows);
-  setText('eng-source',    source);
-  setText('eng-imbalance', (anomalyP * 100).toFixed(1));
-  setText('eng-normal',    (normalP  * 100).toFixed(1));
-
-  // Charts — only push to MPU charts when HP mode
-  trendChart.push(anomalyP);
-  if (state.inferenceMode === 'high_power') {
-    latencyChart.push(latency);
-    if (d.board_temp_c !== null && d.board_temp_c !== undefined) {
-      tempChart.push(d.board_temp_c);
-    }
-  }
-
-  // Status bar
-  const ts = new Date(d.ts * 1000);
-  setText('sb-ts',     ts.toLocaleTimeString());
-  setText('sb-cycles', `${state.cycles} cycles`);
-  setText('sb-uptime', `uptime ${Math.round((Date.now()-state.startTime)/1000)}s`);
-
-  // Log
-  addLog(d, label);
-
-  // Contrast demo
-  advanceDemoOnTelemetry(label);
-}
-
-function setText(id, val) {
-  const el = document.getElementById(id);
-  if (el) {
-    const unit = el.querySelector('.unit');
-    if (unit) {
-      el.childNodes[0].textContent = val;
-    } else {
-      el.textContent = val;
-    }
-  }
-}
-
-const LOG_MAX = 80;
-function addLog(d, label) {
-  const el   = document.getElementById('log-lines');
-  const line = document.createElement('div');
-  line.className = 'log-line ' + (label === 'imbalance' ? 'anomaly' : label);
-  const ts   = new Date(d.ts * 1000).toLocaleTimeString();
-  const temp = (d.board_temp_c !== null && d.board_temp_c !== undefined)
-    ? d.board_temp_c.toFixed(1) + '\u00b0C'
-    : '---';
-  const modeTag = state.inferenceMode === 'low_power' ? '[LP]' : '[HP]';
-  line.textContent =
-    `${ts} ${modeTag}  ${label.padEnd(10)}  prob=${(d.imbalance_prob*100).toFixed(1)}%` +
-    `  temp=${temp}  lat=${d.latency_ms.toFixed(1)}ms  drop=${d.drop_rate_pct.toFixed(2)}%  src=${d.source}`;
-  el.prepend(line);
-  while (el.children.length > LOG_MAX) el.lastChild.remove();
-}
-
-// ── Contrast Demo ──────────────────────────────────────────────────────────
-const DEMO_PHASES = [
-  { title: '\u2699\uFE0F Contrast Demo', desc: 'Tape a coin or bolt to the motor shaft now.\nThe detector will flag the imbalance within 1\u20132 inference cycles.', countdown: 5, state: 'Get ready\u2026' },
-  { title: '\u{1F50D} Observing', desc: 'Load applied. Watching for fault detection\u2026', countdown: null, state: 'Normal (baseline)' },
-  { title: '\u26A0\uFE0F Fault Detected!', desc: 'Imbalance confirmed. Now remove the load.', countdown: 5, state: 'IMBALANCE \u2014 remove load' },
-  { title: '\u{1F50D} Observing', desc: 'Load removed. Watching for return to normal\u2026', countdown: null, state: 'Waiting for normal\u2026' },
-  { title: '\u2705 Demo Complete', desc: 'The model correctly detected the fault and cleared on load removal.', countdown: 3, state: 'Complete' },
-];
-
-let demoPhase      = -1;
-let demoTimer      = null;
-let demoCountVal   = 0;
-let demoObserveTimer = null;
-
-function startContrastDemo() {
-  if (demoPhase >= 0) return;
-  demoPhase = 0;
-  document.getElementById('demo-trigger-btn').disabled = true;
-  showDemoPhase(0);
-}
-
-function cancelDemo() {
-  clearTimeout(demoTimer);
-  clearTimeout(demoObserveTimer);
-  demoPhase = -1;
-  document.getElementById('demo-overlay').classList.remove('visible');
-  document.getElementById('demo-trigger-btn').disabled = false;
-}
-
-function showDemoPhase(phase) {
-  if (phase >= DEMO_PHASES.length) { cancelDemo(); return; }
-  demoPhase = phase;
-  const p = DEMO_PHASES[phase];
-  document.getElementById('demo-overlay-title').textContent  = p.title;
-  document.getElementById('demo-overlay-desc').textContent   = p.desc;
-  document.getElementById('demo-current-state').textContent  = p.state;
-  document.getElementById('demo-overlay').classList.add('visible');
-
-  if (p.countdown !== null) {
-    runCountdown(p.countdown, () => showDemoPhase(phase + 1));
-  } else {
-    document.getElementById('demo-countdown').textContent = '\u2022\u2022\u2022';
-    demoObserveTimer = setTimeout(() => showDemoPhase(phase + 1), 20000);
-  }
-}
-
-function runCountdown(seconds, onDone) {
-  demoCountVal = seconds;
-  document.getElementById('demo-countdown').textContent = seconds;
-  function tick() {
-    demoCountVal--;
-    const el = document.getElementById('demo-countdown');
-    el.textContent = demoCountVal > 0 ? demoCountVal : '';
-    el.classList.add('tick');
-    setTimeout(() => el.classList.remove('tick'), 150);
-    if (demoCountVal <= 0) { onDone(); return; }
-    demoTimer = setTimeout(tick, 1000);
-  }
-  demoTimer = setTimeout(tick, 1000);
-}
-
-function advanceDemoOnTelemetry(label) {
-  if (demoPhase === 1 && label === 'imbalance') {
-    clearTimeout(demoObserveTimer);
-    showDemoPhase(2);
-  } else if (demoPhase === 3 && label === 'normal') {
-    clearTimeout(demoObserveTimer);
-    showDemoPhase(4);
-  }
-}
-
-// ── Tabs ───────────────────────────────────────────────────────────────────
-function switchTab(name, btn) {
-  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
-  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-  document.getElementById('panel-' + name).classList.add('active');
-  btn.classList.add('active');
-}
-
-// ── Theme ──────────────────────────────────────────────────────────────────
-function toggleTheme() {
-  const html = document.documentElement;
-  html.setAttribute('data-theme',
-    html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
-}
-
-// ── Init ───────────────────────────────────────────────────────────────────
-window.addEventListener('load', () => {
-  applyModeUI('high_power');   // default until server responds
-  connect();
-  window.addEventListener('resize', () => {
-    trendChart.draw();
-    tempChart.draw();
-    latencyChart.draw();
-  });
-});
-</script>
+    connect();
+  </script>
 </body>
 </html>

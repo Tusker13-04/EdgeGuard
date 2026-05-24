@@ -1,29 +1,22 @@
-// firmware/uno_q_main/config.h
-// Hardware configuration and pinout for EdgeGuard on Arduino UNO Q
+#ifndef CONFIG_H
+#define CONFIG_H
 
-#ifndef EDGEGUARD_CONFIG_H
-#define EDGEGUARD_CONFIG_H
+// --- Sampling & FIFO -----------------------------------------------
+#define FIFO_WATERMARK       100
+#define SAMPLES_PER_IRQ       25
+#define IWDG_TIMEOUT_US  4000000
 
-// ── I2C Bus config ────────────────────────────────────────────────────────
-// On UNO Q, the Qwiic connector is on I2C4 (Wire1).
-#define LIS3DH_WIRE      Wire1
-#define LIS3DH_ADDR      0x18
-#define LIS3DH_INT1_PIN  2
-#define I2C_TIMEOUT_MS   5
+// --- Phase 1: Reflex Layer -----------------------------------------
+// Pin toggled immediately when EI model fires anomaly (us-latency reflex)
+#define REFLEX_ALERT_PIN      D2
 
-// ── DS18B20 1-Wire config ─────────────────────────────────────────────────
-#define ONE_WIRE_PIN     4
-#define DS18B20_CONV_MS  750
+// Raw RMS fallback threshold (used when EI model is absent)
+// Units: mg (milli-g)
+#define REFLEX_THRESHOLD    2000
 
-// ── Sampling config ───────────────────────────────────────────────────────
-// LIS3DH ODR = 400 Hz
-// Hardware FIFO is 32 samples deep. We trigger an interrupt every 25 samples.
-#define SAMPLES_PER_IRQ  25
+// --- Phase 3: Remote Tuning (Bridge command string) ----------------
+// MPU sends Bridge.put(REMOTE_TUNE_CMD, "{\"threshold\":1800}")
+// MCU's onCommand handler parses and hot-patches REFLEX_THRESHOLD at runtime
+#define REMOTE_TUNE_CMD  "remote_tune"
 
-// We accumulate 4 IRQs (100 samples) before sending a batch to the MPU.
-#define FIFO_WATERMARK   100
-
-// ── Watchdog ──────────────────────────────────────────────────────────────
-#define IWDG_TIMEOUT_US  4000000  // 4 seconds
-
-#endif // EDGEGUARD_CONFIG_H
+#endif // CONFIG_H
