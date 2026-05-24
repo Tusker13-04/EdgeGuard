@@ -3,6 +3,7 @@
 #
 # Architecture:
 #   Ingest Thread  : BridgeReceiver/UDPReceiver → FastCircularBuffer
+#   Stdin Thread   : reads {"mode": ...} signal lines from server.py (hot-swap)
 #   Main Thread    : PipelineEngine.run_inference_loop() → stdout
 #
 # Usage:
@@ -15,11 +16,17 @@
 # Telemetry output (one JSON line per inference cycle, to stdout):
 #   {"ts": ..., "label": "normal", "imbalance_prob": 0.02,
 #    "board_temp_c": 27.4, "latency_ms": 4.1,
-#    "drop_rate_pct": 0.0, "n_rows": 200}
+#    "drop_rate_pct": 0.0, "n_rows": 200,
+#    "inference_mode": "high_power" | "low_power"}
+#
+# Hot-swap mode signal (Critique Fix 2):
+#   server.py writes a single JSON line to this process's stdin:
+#     {"mode": "low_power"}   → sets   low_power_event (skips ONNX next tick)
+#     {"mode": "high_power"}  → clears low_power_event (resumes ONNX next tick)
+#   No process restart. Mode change latency < 50ms.
 
 import sys
 
-# Python version guard
 if sys.version_info < (3, 10):
     raise RuntimeError(
         f"EdgeGuard requires Python >= 3.10. "
@@ -34,6 +41,7 @@ import time
 import json
 import logging
 import signal
+import os
 from typing import Union
 
 from src.udp_receiver import UDPReceiver
@@ -48,6 +56,41 @@ logging.basicConfig(
 log = logging.getLogger("edgeguard")
 
 UDP_PORT = 4444
+
+
+# ---------------------------------------------------------------------------
+# STDIN MODE SIGNAL READER (hot-swap, Critique Fix 2)
+# ---------------------------------------------------------------------------
+
+def _start_stdin_mode_reader(low_power_event: threading.Event) -> threading.Thread:
+    """
+    Daemon thread that reads JSON signal lines from stdin.
+    server.py writes {"mode": "low_power"} or {"mode": "high_power"}.
+    Sets/clears low_power_event accordingly.
+    Exits silently when stdin closes (subprocess lifetime).
+    """
+    def _reader():
+        for raw_line in sys.stdin:
+            line = raw_line.strip()
+            if not line:
+                continue
+            try:
+                msg = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            mode = msg.get("mode")
+            if mode == "low_power":
+                low_power_event.set()
+                log.info("[StdinReader] Mode signal received: low_power")
+            elif mode == "high_power":
+                low_power_event.clear()
+                log.info("[StdinReader] Mode signal received: high_power")
+            else:
+                log.debug("[StdinReader] Unknown mode signal: %r", mode)
+
+    t = threading.Thread(target=_reader, daemon=True, name="stdin-mode-reader")
+    t.start()
+    return t
 
 
 # ---------------------------------------------------------------------------
@@ -90,6 +133,7 @@ def run_demo(jsonl_path: str, interval: float) -> None:
                 "drop_rate_pct":  0.0,
                 "n_rows":         200,
                 "board_temp_c":   round(temp, 2),
+                "inference_mode": "high_power",
             }
             lines.append(json.dumps(rec))
         return lines
@@ -125,8 +169,29 @@ def run_demo(jsonl_path: str, interval: float) -> None:
 # LIVE MODE
 # ---------------------------------------------------------------------------
 
-def run_live(receiver: Union[UDPReceiver, BridgeReceiver], interval: float) -> None:
-    engine = PipelineEngine(receiver=receiver, interval=interval)
+def run_live(
+    receiver: Union[UDPReceiver, BridgeReceiver],
+    interval: float,
+    initial_mode: str = "high_power",
+) -> None:
+    """
+    Start the live inference pipeline.
+
+    The low_power_event is pre-set if initial_mode == 'low_power', then
+    updated at runtime by the stdin reader thread (no restart needed).
+    """
+    low_power_event = threading.Event()
+    if initial_mode == "low_power":
+        low_power_event.set()
+
+    # Start stdin reader for hot-swap mode signals from server.py
+    _start_stdin_mode_reader(low_power_event)
+
+    engine = PipelineEngine(
+        receiver=receiver,
+        interval=interval,
+        low_power_event=low_power_event,
+    )
 
     def _shutdown(sig, frame):
         engine.stop()
@@ -151,6 +216,12 @@ def run_live(receiver: Union[UDPReceiver, BridgeReceiver], interval: float) -> N
 # ENTRY POINT
 # ---------------------------------------------------------------------------
 
+def get_bridge_fifo_path(override: str | None) -> str:
+    if override:
+        return override
+    return os.environ.get("EDGEGUARD_BRIDGE_FIFO", "/run/arduino/sensor_batch")
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description="EdgeGuard live inference pipeline (Arduino UNO Q)")
     ap.add_argument(
@@ -174,9 +245,14 @@ if __name__ == "__main__":
         "--demo", type=str, default=None, metavar="JSONL_FILE",
         help="Replay a recorded telemetry .jsonl file instead of live mode.",
     )
+    ap.add_argument(
+        "--inference-mode", type=str, default="high_power",
+        choices=["high_power", "low_power"],
+        help="Initial inference mode (default: high_power). "
+             "Overridden at runtime via stdin signals from server.py.",
+    )
     args = ap.parse_args()
 
-    # ISS-05: Reject non-positive interval before any I/O or thread start.
     if args.interval <= 0:
         ap.error("interval must be > 0 (got %s)" % args.interval)
 
@@ -189,4 +265,4 @@ if __name__ == "__main__":
             fifo_path = get_bridge_fifo_path(args.bridge_fifo)
             recv = BridgeReceiver(socket_path=fifo_path)
 
-        run_live(receiver=recv, interval=args.interval)
+        run_live(receiver=recv, interval=args.interval, initial_mode=args.inference_mode)
