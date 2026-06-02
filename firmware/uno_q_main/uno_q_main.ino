@@ -97,10 +97,11 @@ void acq_thread_func(void*, void*, void*) {
         float anomaly_confidence = result.classification[EI_CLASS_ANOMALY].value;
         anomaly_detected = (anomaly_confidence > 0.75f);
       } else {
-        // EI model unavailable — RMS fallback
+        // EI model unavailable — RMS fallback (scaled to mg to match threshold)
         float rms_sq = 0.0f;
         for (int i = 0; i < FIFO_WATERMARK * 3; i++) rms_sq += batch[i] * batch[i];
-        anomaly_detected = (sqrtf(rms_sq / (FIFO_WATERMARK * 3)) > g_reflex_threshold);
+        float rms_mg = sqrtf(rms_sq / (FIFO_WATERMARK * 3)) * 1000.0f;
+        anomaly_detected = (rms_mg > g_reflex_threshold);
       }
 
       if (anomaly_detected) {
@@ -112,14 +113,14 @@ void acq_thread_func(void*, void*, void*) {
           float x = batch[i * 3 + 0];
           float y = batch[i * 3 + 1];
           float z = batch[i * 3 + 2];
-          float mag = sqrtf(x*x + y*y + z*z);
+          float mag = sqrtf(x*x + y*y + z*z) * 1000.0f; // Scale to mg
           sum += mag;
           sq_sum += mag * mag;
         }
         float variance = (sq_sum / n) - ((sum/n)*(sum/n));
 
         if (variance < 50.0f) { 
-          // Ignore insignificant trigger
+          // Ignore insignificant trigger (variance < 50 mg^2, std dev < 7.07 mg)
           anomaly_detected = false; 
         }
       }
@@ -208,6 +209,8 @@ void setup() {
   Bridge.onCommand(REMOTE_TUNE_CMD, onRemoteTune);
   Bridge.onCommand("heartbeat", onHeartbeat);
   Bridge.onCommand("sampling_mode", onSamplingMode);
+
+  g_last_heartbeat_ts = millis();
 }
 
 void loop() {

@@ -79,6 +79,7 @@ _background_tasks: set[asyncio.Task] = set()
 
 # Subprocess stdin writer — set once the pipeline process is started
 _stdin_writer: asyncio.StreamWriter | None = None
+_stdin_lock = asyncio.Lock()
 
 
 # ── REST endpoints ────────────────────────────────────────────────────────
@@ -103,13 +104,14 @@ async def set_mode(req: ModeRequest) -> JSONResponse:
     log.info("[Server] Inference mode set to: %s", _inference_mode)
 
     # Signal the running subprocess via stdin — hot-swap, no restart
-    if _stdin_writer is not None and not _stdin_writer.is_closing():
-        try:
-            signal_line = json.dumps({"mode": _inference_mode}) + "\n"
-            _stdin_writer.write(signal_line.encode())
-            await _stdin_writer.drain()
-        except Exception as exc:
-            log.warning("[Server] Failed to write mode signal to subprocess stdin: %s", exc)
+    async with _stdin_lock:
+        if _stdin_writer is not None and not _stdin_writer.is_closing():
+            try:
+                signal_line = json.dumps({"mode": _inference_mode}) + "\n"
+                _stdin_writer.write(signal_line.encode())
+                await _stdin_writer.drain()
+            except Exception as exc:
+                log.warning("[Server] Failed to write mode signal to subprocess stdin: %s", exc)
 
     return JSONResponse({"mode": _inference_mode})
 

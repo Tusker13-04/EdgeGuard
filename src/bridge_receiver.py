@@ -123,6 +123,7 @@ class BridgeReceiver(BaseReceiver):
         # ── Autonomous trigger state ──────────────────────────────────────
         self._last_trigger_time: float = 0.0
         self._cooldown_thread: Optional[threading.Thread] = None
+        self._cooldown_event: Optional[threading.Event] = None
         self._cooldown_lock = threading.Lock()
 
     # ── Public run loop ───────────────────────────────────────────────────
@@ -219,51 +220,45 @@ class BridgeReceiver(BaseReceiver):
     def _reset_cooldown_thread(self) -> None:
         """Start a new cooldown thread, cancelling any previous one via event."""
         with self._cooldown_lock:
-            # Signal any existing cooldown thread to abort
-            if self._cooldown_thread and self._cooldown_thread.is_alive():
-                # We communicate via _last_trigger_time: the thread checks it
-                # on wake and restarts its wait if it was bumped.
-                pass  # Thread reads _last_trigger_time; updating it above is enough
+            if self._cooldown_event:
+                self._cooldown_event.set()
+            self._cooldown_event = threading.Event()
 
             t = threading.Thread(
                 target=self._cooldown_worker,
+                args=(self._cooldown_event,),
                 daemon=True,
                 name="anomaly-cooldown",
             )
             self._cooldown_thread = t
             t.start()
 
-    def _cooldown_worker(self) -> None:
+    def _cooldown_worker(self, cancel_event: threading.Event) -> None:
         """
         Wait AUTO_COOLDOWN_S seconds from the last trigger time.
         If no new triggers arrive in that window, revert to low_power.
-        Handles trigger bumping by re-sleeping as needed.
         """
-        while True:
+        while not cancel_event.is_set():
             with self._cooldown_lock:
                 deadline = self._last_trigger_time + AUTO_COOLDOWN_S
 
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 break
-            time.sleep(min(remaining, 1.0))  # wake every 1s to check bumps
+            if cancel_event.wait(timeout=min(remaining, 1.0)):
+                return
 
-            with self._cooldown_lock:
-                new_deadline = self._last_trigger_time + AUTO_COOLDOWN_S
-            if new_deadline > deadline:
-                # Trigger was bumped while we slept — loop to re-wait
-                continue
-
-        log.info(
-            "[BridgeReceiver] Cooldown elapsed (%.0fs) — reverting to low_power.",
-            AUTO_COOLDOWN_S,
-        )
-        threading.Thread(
-            target=self._post_mode,
-            args=("low_power",),
-            daemon=True,
-            name="anomaly-revert",
-        ).start()
+        if not cancel_event.is_set():
+            log.info(
+                "[BridgeReceiver] Cooldown elapsed (%.0fs) — reverting to low_power.",
+                AUTO_COOLDOWN_S,
+            )
+            threading.Thread(
+                target=self._post_mode,
+                args=("low_power",),
+                daemon=True,
+                name="anomaly-revert",
+            ).start()
 
     @staticmethod
     def _post_mode(mode: str) -> None:

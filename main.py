@@ -214,7 +214,28 @@ def run_live(
     try:
         while not stop_event.is_set():
             time.sleep(interval)
-            if low_power_event.is_set():
+            is_low_power = low_power_event.is_set()
+            receiver_temp = getattr(receiver, "last_temp_c", 25.0)
+            board_temp_c = 25.0 if receiver_temp is None else receiver_temp
+            
+            if is_low_power:
+                # Emit keepalive frame during low_power so dashboard stays connected
+                keepalive = {
+                    "ts":             time.time(),
+                    "source":         "keepalive",
+                    "label":          "nominal",
+                    "diagnostic":     "Low Power Mode — Cognition Paused",
+                    "imbalance_prob": 0.0,
+                    "confidence":     1.0,
+                    "temp_state":     "normal",
+                    "board_temp_c":   board_temp_c,
+                    "raw_probs":      {"normal": 1.0, "imbalance": 0.0, "bearing": 0.0, "looseness": 0.0},
+                    "latency_ms":     0.0,
+                    "drop_rate_pct":  getattr(receiver, "drop_rate_pct", 0.0),
+                    "n_rows":         0,
+                    "inference_mode": "low_power"
+                }
+                print(json.dumps(keepalive), flush=True)
                 continue
                 
             snap = buf.get_snapshot()
@@ -224,13 +245,13 @@ def run_live(
             t0 = time.perf_counter()
             telemetry = engine.process_batch(
                 snap.flatten().tolist(), 
-                board_temp_c=getattr(receiver, "last_temp_c", 25.0),
+                board_temp_c=board_temp_c,
                 source="sensor_batch"
             )
             telemetry["latency_ms"] = round((time.perf_counter() - t0) * 1000.0, 2)
             telemetry["drop_rate_pct"] = getattr(receiver, "drop_rate_pct", 0.0)
             telemetry["n_rows"] = len(snap)
-            telemetry["inference_mode"] = "low_power" if low_power_event.is_set() else "high_power"
+            telemetry["inference_mode"] = "high_power"
             
             print(json.dumps(telemetry), flush=True)
             
