@@ -79,11 +79,12 @@ class PacketParser:
         dropped = 0
         if self._last_seq is not None:
             gap = (seq_id - self._last_seq - 1) & 0xFFFFFFFF
-            if gap > 10_000:
+            elapsed_s = now - self._last_arrival
+            max_plausible = max(int(elapsed_s * 400 * 2), 10_000)
+            if gap > max_plausible:
                 log.warning(
-                    "[PacketParser] Sequence jump %d -> %d (gap=%d): "
-                    "firmware likely rebooted. Resetting drop counter.",
-                    self._last_seq, seq_id, gap,
+                    "[PacketParser] Implausible sequence gap %d -> %d (gap=%d, elapsed=%.2fs); treating as reboot.",
+                    self._last_seq, seq_id, gap, elapsed_s
                 )
                 gap = 0
             dropped = int(gap)

@@ -1,15 +1,15 @@
 import numpy as np
-from src.inference import run_inference_cycle
-from src.buffer import FastCircularBuffer
+from src.inference import DiagnosticEngine
 
 def test_inference_cycle_calculates_telemetry():
-    buf = FastCircularBuffer(capacity=1000, features=4)
-    for _ in range(1000):
-        buf.add_row(np.array([1.0, 1.0, 1.0, 25.0], dtype=np.float32))
-    state = run_inference_cycle(buf)
+    engine = DiagnosticEngine()
+    # Mock 200 samples of 4-feature rows (accel_x, accel_y, accel_z, temp)
+    samples = np.ones((200, 4), dtype=np.float32)
+    result = engine.run(samples, board_temp_c=25.0)
     
-    assert "label" in state
-    assert "imbalance_prob" in state
-    assert "latency_ms" in state
-    assert state["imbalance_prob"] <= 1.0
-    assert state["label"] in ["normal", "imbalance"]
+    assert result.label is not None
+    assert result.imbalance_prob <= 1.0
+    assert result.temp_state == "normal"
+    assert result.diagnostic is not None
+    assert result.confidence <= 1.0
+    assert result.label in ["normal", "imbalance", "bearing", "looseness"]

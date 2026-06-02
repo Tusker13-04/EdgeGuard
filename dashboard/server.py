@@ -34,6 +34,7 @@
 #   This endpoint is the single source of truth for mode state.
 
 import asyncio
+from contextlib import asynccontextmanager
 import json
 import logging
 import os
@@ -211,7 +212,11 @@ async def _pipeline_reader() -> None:
     finally:
         _stdin_writer = None
         try:
-            proc.kill()
+            proc.terminate()
+            try:
+                await asyncio.wait_for(proc.wait(), timeout=1.0)
+            except asyncio.TimeoutError:
+                proc.kill()
         except ProcessLookupError:
             pass
         await proc.wait()
@@ -234,8 +239,8 @@ async def _pipeline_reader_with_restart() -> None:
 _pipeline_task: asyncio.Task | None = None
 
 
-@app.on_event("startup")
-async def startup() -> None:
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     global _pipeline_task
     _pipeline_task = asyncio.create_task(_pipeline_reader_with_restart())
     task2 = asyncio.create_task(_broadcast_worker())
@@ -248,6 +253,11 @@ async def startup() -> None:
         "[Server] Dashboard started. transport=%s inference_mode=%s max_clients=%d",
         _MODE, _inference_mode, _MAX_CLIENTS,
     )
+    yield
+    for t in list(_background_tasks):
+        t.cancel()
+
+app.router.lifespan_context = lifespan
 
 
 # ── WebSocket & static ────────────────────────────────────────────────────

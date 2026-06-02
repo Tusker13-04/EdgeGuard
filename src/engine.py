@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+import threading
 import numpy as np
 from collections import deque
 from typing import Optional
@@ -37,13 +38,27 @@ class EdgeGuardEngine:
         self._recent_probs: deque[float] = deque(maxlen=TUNE_WINDOW)
         self._tune_dispatched_at: float = 0.0
 
+        # Start heartbeat thread
+        self._stop_event = threading.Event()
+        self._hb_thread = threading.Thread(target=self._heartbeat_loop, daemon=True)
+        self._hb_thread.start()
+
+    def _heartbeat_loop(self) -> None:
+        while not self._stop_event.is_set():
+            try:
+                self.bridge.put("heartbeat", "{}")
+            except Exception as e:
+                logger.error(f"Heartbeat failed: {e}")
+            time.sleep(2.0)
+
     def process_batch(
         self,
         samples_flat: list[float],
         board_temp_c: float = 25.0,
         source: str = "sensor_batch",
     ) -> dict:
-        samples = np.array(samples_flat, dtype=np.float32).reshape(-1, 3)
+        # Issue 4 fix: Reshape to 4 columns (x, y, z, temp) to match schema
+        samples = np.array(samples_flat, dtype=np.float32).reshape(-1, 4)
         result: DiagnosticResult = self.diag.run(samples, board_temp_c=board_temp_c)
 
         telemetry = {
@@ -74,11 +89,18 @@ class EdgeGuardEngine:
         if all(p >= TUNE_PROB_THRESHOLD for p in self._recent_probs):
             now = time.time()
             if now - self._tune_dispatched_at > 60.0:
-                payload = json.dumps({"threshold": TUNE_NEW_THRESHOLD})
+                # ── Smart Threshold Tuning ─────────────────────────────────
+                # Calculate optimal threshold based on current noise/probability
+                #Higher prob means we need a tighter (lower) threshold on the MCU
+                NOISE_FLOOR_COEFF = 1.5
+                avg_prob = sum(self._recent_probs) / len(self._recent_probs)
+                optimal_threshold = int(TUNE_NEW_THRESHOLD / (1.0 + avg_prob * NOISE_FLOOR_COEFF))
+
+                payload = json.dumps({"threshold": optimal_threshold})
                 self.bridge.put("remote_tune", payload)
                 self._tune_dispatched_at = now
                 self._recent_probs.clear()
                 logger.info(
-                    "[EdgeGuard] Remote-tune dispatched -> threshold=%d mg",
-                    TUNE_NEW_THRESHOLD,
+                    "[EdgeGuard] Smart Remote-tune dispatched -> optimal_threshold=%d mg (avg_prob=%.2f)",
+                    optimal_threshold, avg_prob,
                 )

@@ -29,12 +29,17 @@ def test_cli_interval_bounds():
 def test_cli_interval_valid():
     """Verify that main.py starts (or at least doesn't exit immediately) with a valid interval."""
     # --demo avoids waiting for a live socket; timeout=2 catches hangs
-    proc = subprocess.run(
-        [sys.executable, "main.py", "--demo", "data/demo.jsonl", "--interval", "0.5"],
-        capture_output=True,
-        text=True,
-        timeout=2,
-    )
-    # It will time out (TimeoutExpired) or exit cleanly — either is fine.
-    # What we must NOT see is the interval validation error.
-    assert "interval must be > 0" not in proc.stderr.lower()
+    try:
+        proc = subprocess.run(
+            [sys.executable, "main.py", "--demo", "data/demo.jsonl", "--interval", "0.5"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+        assert "interval must be > 0" not in proc.stderr.lower()
+    except subprocess.TimeoutExpired as exc:
+        # If it timed out, it started successfully. Check stderr from exception.
+        stderr = exc.stderr or ""
+        if isinstance(stderr, bytes):
+            stderr = stderr.decode("utf-8", errors="ignore")
+        assert "interval must be > 0" not in stderr.lower()

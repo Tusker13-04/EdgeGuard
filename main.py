@@ -46,7 +46,8 @@ from typing import Union
 
 from src.udp_receiver import UDPReceiver
 from src.bridge_receiver import BridgeReceiver
-from src.engine import PipelineEngine, format_telemetry_json
+from src.engine import EdgeGuardEngine
+from src.buffer import FastCircularBuffer
 from src.inference import INFERENCE_INTERVAL_S
 
 logging.basicConfig(
@@ -150,6 +151,7 @@ def run_demo(jsonl_path: str, interval: float) -> None:
     signal.signal(signal.SIGINT,  _shutdown)
     signal.signal(signal.SIGTERM, _shutdown)
 
+    next_tick = time.perf_counter()
     while not stop_event.is_set():
         for raw in lines:
             if stop_event.is_set():
@@ -160,7 +162,13 @@ def run_demo(jsonl_path: str, interval: float) -> None:
                 continue
             rec["ts"] = round(time.time(), 3)
             print(json.dumps(rec), flush=True)
-            time.sleep(interval)
+            
+            next_tick += interval
+            sleep_time = next_tick - time.perf_counter()
+            if sleep_time > 0:
+                time.sleep(sleep_time)
+            else:
+                next_tick = time.perf_counter()
 
     log.info("[Demo] Replay stopped.")
 
@@ -176,40 +184,65 @@ def run_live(
 ) -> None:
     """
     Start the live inference pipeline.
-
-    The low_power_event is pre-set if initial_mode == 'low_power', then
-    updated at runtime by the stdin reader thread (no restart needed).
     """
     low_power_event = threading.Event()
     if initial_mode == "low_power":
         low_power_event.set()
 
-    # Start stdin reader for hot-swap mode signals from server.py
     _start_stdin_mode_reader(low_power_event)
 
-    engine = PipelineEngine(
-        receiver=receiver,
-        interval=interval,
-        low_power_event=low_power_event,
-    )
+    buf = FastCircularBuffer()
+    stop_event = threading.Event()
+
+    # Stub put() for UDP bench receiver which lacks it
+    if not hasattr(receiver, "put"):
+        receiver.put = lambda cmd, payload: None
+
+    engine = EdgeGuardEngine(bridge=receiver)
 
     def _shutdown(sig, frame):
-        engine.stop()
+        stop_event.set()
 
     signal.signal(signal.SIGINT,  _shutdown)
     signal.signal(signal.SIGTERM, _shutdown)
 
-    engine.start()
+    ingest_thread = threading.Thread(
+        target=receiver.run, args=(buf, stop_event), daemon=True
+    )
+    ingest_thread.start()
 
     try:
-        for telemetry in engine.run_inference_loop():
-            print(format_telemetry_json(telemetry), flush=True)
+        while not stop_event.is_set():
+            time.sleep(interval)
+            if low_power_event.is_set():
+                continue
+                
+            snap = buf.get_snapshot()
+            if len(snap) == 0:
+                continue
+                
+            t0 = time.perf_counter()
+            telemetry = engine.process_batch(
+                snap.flatten().tolist(), 
+                board_temp_c=getattr(receiver, "last_temp_c", 25.0),
+                source="sensor_batch"
+            )
+            telemetry["latency_ms"] = round((time.perf_counter() - t0) * 1000.0, 2)
+            telemetry["drop_rate_pct"] = getattr(receiver, "drop_rate_pct", 0.0)
+            telemetry["n_rows"] = len(snap)
+            telemetry["inference_mode"] = "low_power" if low_power_event.is_set() else "high_power"
+            
+            print(json.dumps(telemetry), flush=True)
+            
     except Exception as exc:
         log.critical("[Main] Pipeline crashed: %s", exc)
-        engine.stop()
+        stop_event.set()
         raise
+    finally:
+        if ingest_thread.is_alive():
+            ingest_thread.join(timeout=1.0)
 
-    log.info("Pipeline stopped. Final drop rate: %.2f%%", receiver.drop_rate_pct)
+    log.info("Pipeline stopped. Final drop rate: %.2f%%", getattr(receiver, "drop_rate_pct", 0.0))
 
 
 # ---------------------------------------------------------------------------

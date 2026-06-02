@@ -4,7 +4,6 @@
 // --- Sampling & FIFO -----------------------------------------------
 #define FIFO_WATERMARK       100
 #define SAMPLES_PER_IRQ       25
-#define IWDG_TIMEOUT_US  4000000
 
 // --- Phase 1: Reflex Layer -----------------------------------------
 // Pin toggled immediately when EI model fires anomaly (us-latency reflex)

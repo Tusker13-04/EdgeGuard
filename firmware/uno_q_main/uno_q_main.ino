@@ -1,6 +1,6 @@
 /**
  * EdgeGuard — uno_q_main.ino
- * Arduino UNO R4 WiFi (RA4M1 / Zephyr RTOS)
+ * Arduino UNO Q (STM32U585 MCU / Qualcomm MPU / Zephyr RTOS)
  *
  * Architecture:
  *   acq_thread  -->  [EI Reflex]  -->  Bridge.notify("anomaly_trigger" | "sensor_batch")
@@ -40,6 +40,13 @@ K_SEM_DEFINE(fifo_sem, 0, FIFO_WATERMARK / SAMPLES_PER_IRQ);  // FLAW-02 fix
 
 // Runtime-tunable threshold (hot-patched via remote_tune command)
 volatile int g_reflex_threshold = REFLEX_THRESHOLD;
+volatile int g_active_threshold = REFLEX_THRESHOLD; // Cache non-safe mode threshold
+volatile uint32_t g_last_heartbeat_ts = 0;
+volatile bool g_local_safe_mode = false;
+volatile int g_sampling_interval_ms = 0;
+
+volatile uint32_t g_reflex_pin_high_ts = 0;
+volatile bool g_reflex_pin_active = false;
 
 // -- FIFO watermark ISR --------------------------------------------
 void fifo_isr() {
@@ -68,6 +75,13 @@ void acq_thread_func(void*, void*, void*) {
     if (batch_idx >= FIFO_WATERMARK) {
       batch_idx = 0;
 
+      // Adaptive Sampling throttling: drop batches if we are within the interval
+      static uint32_t last_batch_ts = 0;
+      if (g_sampling_interval_ms > 0 && (millis() - last_batch_ts < (uint32_t)g_sampling_interval_ms)) {
+        continue;
+      }
+      last_batch_ts = millis();
+
       // Phase 1: EI inference
       ei_impulse_result_t result = {};
       bool anomaly_detected = false;
@@ -90,13 +104,42 @@ void acq_thread_func(void*, void*, void*) {
       }
 
       if (anomaly_detected) {
-        // us-latency reflex: toggle physical pin FIRST
-        digitalWrite(REFLEX_ALERT_PIN, HIGH);
-        delay(50);
-        digitalWrite(REFLEX_ALERT_PIN, LOW);
+        // Significance Filter: Avoid triggering MPU on noise spikes
+        // Calculate variance on the magnitude of the 3D acceleration vectors
+        float sum = 0, sq_sum = 0;
+        int n = FIFO_WATERMARK;
+        for(int i = 0; i < n; i++) {
+          float x = batch[i * 3 + 0];
+          float y = batch[i * 3 + 1];
+          float z = batch[i * 3 + 2];
+          float mag = sqrtf(x*x + y*y + z*z);
+          sum += mag;
+          sq_sum += mag * mag;
+        }
+        float variance = (sq_sum / n) - ((sum/n)*(sum/n));
 
-        // Then notify MPU for Cognition layer
-        Bridge.notify("anomaly_trigger", batch, sizeof(batch));
+        if (variance < 50.0f) { 
+          // Ignore insignificant trigger
+          anomaly_detected = false; 
+        }
+      }
+
+      // Anomaly Alert Rate-Limiting to prevent high-frequency flapping & MPU thread congestion
+      static uint32_t last_alert_ts = 0;
+      if (anomaly_detected) {
+        if (millis() - last_alert_ts >= 1000) {
+          last_alert_ts = millis();
+          // us-latency reflex: toggle physical pin FIRST (non-blocking)
+          digitalWrite(REFLEX_ALERT_PIN, HIGH);
+          g_reflex_pin_high_ts = millis();
+          g_reflex_pin_active = true;
+
+          // Then notify MPU for Cognition layer
+          Bridge.notify("anomaly_trigger", batch, sizeof(batch));
+        } else {
+          // Rate-limited: Demote to standard sensor batch
+          Bridge.notify("sensor_batch", batch, sizeof(batch));
+        }
       } else {
         // Normal batch — cheaper packet
         Bridge.notify("sensor_batch", batch, sizeof(batch));
@@ -107,18 +150,43 @@ void acq_thread_func(void*, void*, void*) {
 
 K_THREAD_DEFINE(acq_thread, 4096, acq_thread_func, NULL, NULL, NULL, 5, 0, 0);
 
-// -- Phase 3: Remote Tuning command handler ------------------------
+// -- Phase 3: Remote Tuning & Control handlers ---------------------
 void onRemoteTune(const String& cmd, const String& payload) {
   // Expected payload: {"threshold": 1800}
-  int idx = payload.indexOf("\"threshold\"");
-  if (idx >= 0) {
-    int colon = payload.indexOf(':', idx);
-    if (colon >= 0) {
-      int new_thresh = payload.substring(colon + 1).toInt();
+  const char* p = payload.c_str();
+  const char* thresh_key = strstr(p, "\"threshold\"");
+  if (thresh_key) {
+    const char* colon = strchr(thresh_key, ':');
+    if (colon) {
+      int new_thresh = strtol(colon + 1, NULL, 10);
       if (new_thresh > 0) {
         g_reflex_threshold = new_thresh;
-        Bridge.notify("tune_ack", String(new_thresh).c_str(), String(new_thresh).length());
+        g_active_threshold = new_thresh; // Cache latest tuned threshold
+        char ack_buf[16];
+        int len = snprintf(ack_buf, sizeof(ack_buf), "%d", new_thresh);
+        Bridge.notify("tune_ack", ack_buf, len);
       }
+    }
+  }
+}
+
+void onHeartbeat(const String& cmd, const String& payload) {
+  g_last_heartbeat_ts = millis();
+  if (g_local_safe_mode) {
+    g_local_safe_mode = false;
+    g_reflex_threshold = g_active_threshold; // Restore MPU-tuned threshold
+    Serial.println("[MCU] HEARTBEAT RESTORED: Resuming normal threshold");
+  }
+}
+
+void onSamplingMode(const String& cmd, const String& payload) {
+  // Expected payload: {"interval_ms": 100}
+  const char* p = payload.c_str();
+  const char* key = strstr(p, "\"interval_ms\"");
+  if (key) {
+    const char* colon = strchr(key, ':');
+    if (colon) {
+      g_sampling_interval_ms = strtol(colon + 1, NULL, 10);
     }
   }
 }
@@ -130,14 +198,32 @@ void setup() {
   digitalWrite(REFLEX_ALERT_PIN, LOW);
 
   Wire1.begin();
-  imu.begin();
-  imu.setFIFOMode(LIS3DH_FIFO_STREAM, FIFO_WATERMARK);
+  if (!imu.begin()) {
+    Serial.println("[MCU] ERROR: LIS3DH accelerometer initialization failed!");
+  }
+  imu.setFIFOMode(LIS3DH_FIFO_STREAM, SAMPLES_PER_IRQ);
   imu.attachInterrupt(fifo_isr);
 
   Bridge.begin();
   Bridge.onCommand(REMOTE_TUNE_CMD, onRemoteTune);
+  Bridge.onCommand("heartbeat", onHeartbeat);
+  Bridge.onCommand("sampling_mode", onSamplingMode);
 }
 
 void loop() {
-  k_sleep(K_FOREVER);
+  // --- Non-blocking Reflex Pin Reset ---
+  if (g_reflex_pin_active && (millis() - g_reflex_pin_high_ts >= 50)) {
+    digitalWrite(REFLEX_ALERT_PIN, LOW);
+    g_reflex_pin_active = false;
+  }
+
+  // --- Cognition Heartbeat Watchdog ---
+  if (millis() - g_last_heartbeat_ts > 5000) {
+    if (!g_local_safe_mode) {
+      g_local_safe_mode = true;
+      g_reflex_threshold = 1200; // High sensitivity fallback
+      Serial.println("[MCU] HEARTBEAT LOST: Entering Safe-Local Mode");
+    }
+  }
+  k_sleep(K_MSEC(100));
 }

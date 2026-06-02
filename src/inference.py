@@ -28,6 +28,7 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 TEMP_RISING_C = float(os.getenv("EG_TEMP_RISING_C", "55.0"))
+INFERENCE_INTERVAL_S = 0.5
 
 _FUSION: dict[tuple[str, str], str] = {
     ("imbalance", "rising"):  "Lubrication Failure — High Temp + High Vibration",
@@ -112,7 +113,8 @@ class DiagnosticEngine:
 
     @staticmethod
     def _rms_fallback(samples: np.ndarray) -> np.ndarray:
-        rms = float(np.sqrt(np.mean(samples ** 2)))
+        # Issue 5 fix: Compute RMS only over x, y, z columns
+        rms = float(np.sqrt(np.mean(samples[:, :3] ** 2)))
         threshold = float(os.getenv("EG_RMS_THRESHOLD", "150.0"))
         if rms > threshold:
             return np.array([0.05, 0.85, 0.05, 0.05], dtype=np.float32)

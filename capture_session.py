@@ -21,8 +21,9 @@ import socket
 import threading
 import argparse
 
+from src.schema import N_FEATURES, get_bridge_fifo_path
 from src.buffer import FastCircularBuffer, DEFAULT_CAPACITY
-from src.udp_receiver import PacketParser, PACKET_SIZE, N_FEATURES
+from src.udp_receiver import PacketParser, PACKET_SIZE
 from src.bridge_receiver import BridgeReceiver
 from src.capture import record_session, SAMPLE_RATE_HZ
 
@@ -37,7 +38,7 @@ def udp_ingest_thread(
 ) -> None:
     """Legacy UDP ingest — bench/dev use only. Production uses BridgeReceiver."""
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.bind(("", UDP_PORT))
+    sock.bind(("127.0.0.1", UDP_PORT))
     sock.settimeout(1.0)
     print(f"[UDP] Listening on :{UDP_PORT} (bench/dev mode)")
     while not stop_event.is_set():
@@ -76,6 +77,9 @@ if __name__ == "__main__":
         help="Override Bridge IPC FIFO path (bridge mode only).",
     )
     args = ap.parse_args()
+    
+    if args.duration <= 0:
+        ap.error("duration must be > 0 (got %d)" % args.duration)
 
     # FIX #2 (root cause): size the buffer to hold the full session.
     # DEFAULT_CAPACITY = 1600 rows = 4 s at 400 Hz.  A 30-second session needs
