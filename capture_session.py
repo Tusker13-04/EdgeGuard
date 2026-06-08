@@ -16,14 +16,13 @@
 #
 # Output: data/raw/<label>/<timestamp>_<index>.csv  (Edge Impulse-ready)
 
-import os
 import socket
 import threading
 import argparse
 
-from src.schema import N_FEATURES, get_bridge_fifo_path
+from src.schema import get_bridge_fifo_path
 from src.buffer import FastCircularBuffer, DEFAULT_CAPACITY
-from src.udp_receiver import PacketParser, PACKET_SIZE
+from src.udp_receiver import PacketParser
 from src.bridge_receiver import BridgeReceiver
 from src.capture import record_session, SAMPLE_RATE_HZ
 

@@ -79,7 +79,7 @@ _background_tasks: set[asyncio.Task] = set()
 
 # Subprocess stdin writer — set once the pipeline process is started
 _stdin_writer: asyncio.StreamWriter | None = None
-_stdin_lock = asyncio.Lock()
+_stdin_lock: asyncio.Lock | None = None
 
 
 # ── REST endpoints ────────────────────────────────────────────────────────
@@ -99,9 +99,12 @@ async def set_mode(req: ModeRequest) -> JSONResponse:
       main.py's stdin-reader thread picks it up within one poll cycle
       and sets/clears the low_power_event — no restart, no state loss.
     """
-    global _inference_mode, _stdin_writer
+    global _inference_mode, _stdin_writer, _stdin_lock
     _inference_mode = req.mode
     log.info("[Server] Inference mode set to: %s", _inference_mode)
+
+    if _stdin_lock is None:
+        _stdin_lock = asyncio.Lock()
 
     # Signal the running subprocess via stdin — hot-swap, no restart
     async with _stdin_lock:
@@ -258,6 +261,8 @@ async def lifespan(app: FastAPI):
     yield
     for t in list(_background_tasks):
         t.cancel()
+    if _background_tasks:
+        await asyncio.gather(*_background_tasks, return_exceptions=True)
 
 app.router.lifespan_context = lifespan
 
@@ -289,5 +294,5 @@ async def websocket_endpoint(ws: WebSocket) -> None:
 
 @app.get("/", response_class=HTMLResponse)
 async def index() -> HTMLResponse:
-    html_path = Path(__file__).parent / "index.html"
+    html_path = Path(__file__).parent / "edgeguard-dashboard.html"
     return HTMLResponse(content=html_path.read_text(encoding="utf-8"))

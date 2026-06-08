@@ -1,10 +1,8 @@
-import os
 import csv
 import tempfile
 import numpy as np
-import pytest
 from src.capture import slice_windows, save_window_as_csv, WINDOW_SIZE
-from src.udp_receiver import FEATURE_COLS, N_FEATURES
+from src.schema import FEATURE_COLS, N_FEATURES
 
 def test_slice_windows_produces_correct_count():
     data = np.ones((1000, N_FEATURES), dtype=np.float32)

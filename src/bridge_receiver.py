@@ -22,7 +22,7 @@ import msgpack
 import numpy as np
 from typing import List, Tuple, Optional
 
-from src.schema import BaseReceiver, BRIDGE_SOCK_PATH, BATCH_PACKETS, PACKET_SIZE
+from src.schema import BaseReceiver, BRIDGE_SOCK_PATH, PACKET_SIZE
 
 log = logging.getLogger(__name__)
 

@@ -7,7 +7,7 @@
 
 // --- Phase 1: Reflex Layer -----------------------------------------
 // Pin toggled immediately when EI model fires anomaly (us-latency reflex)
-#define REFLEX_ALERT_PIN      D2
+#define REFLEX_ALERT_PIN      D3
 
 // Raw RMS fallback threshold (used when EI model is absent)
 // Units: mg (milli-g)

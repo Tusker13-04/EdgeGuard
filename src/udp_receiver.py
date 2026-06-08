@@ -20,7 +20,7 @@ import logging
 import numpy as np
 import socket
 
-from src.schema import BaseReceiver, FEATURE_COLS, N_FEATURES
+from src.schema import BaseReceiver
 
 log = logging.getLogger(__name__)
 

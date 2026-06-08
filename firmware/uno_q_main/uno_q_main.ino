@@ -14,8 +14,13 @@
 #include <Arduino.h>
 #include <zephyr/kernel.h>
 #include <LIS3DH.h>
+#include <OneWire.h>
+#include <DallasTemperature.h>
 #include <ArduinoBridge.h>
 #include "config.h"
+
+#define ONE_WIRE_PIN 4
+#define DS18B20_CONV_MS 750
 
 // -- Edge Impulse inferencing stub ----------------------------------
 // Replace with the actual EI Arduino library header once exported:
@@ -34,9 +39,30 @@
 #endif
 // -------------------------------------------------------------------
 
+// ── Payload (must match src/schema.py) ─────────────────────────────
+struct __attribute__((packed)) SensorPayload {
+  uint32_t timestamp_us;   // us since MCU boot
+  uint32_t sequence_id;    // monotonic counter for drop detection
+  float    accel_x;        // m/s2
+  float    accel_y;        // m/s2
+  float    accel_z;        // m/s2
+  float    board_temp;     // °C
+};
+static_assert(sizeof(SensorPayload) == 24, "Payload size mismatch");
+
 LIS3DH imu(Wire1);          // Qwiic / I2C4 on RA4M1
+OneWire oneWire(ONE_WIRE_PIN);
+DallasTemperature tempSensor(&oneWire);
 
 K_SEM_DEFINE(fifo_sem, 0, FIFO_WATERMARK / SAMPLES_PER_IRQ);  // FLAW-02 fix
+
+// Globals
+volatile float last_temp_c = 25.0f;
+volatile bool temp_req_pending = false;
+volatile uint32_t temp_req_ms = 0;
+
+__attribute__((aligned(32))) SensorPayload batch[FIFO_WATERMARK];
+uint32_t seq_counter = 0;
 
 // Runtime-tunable threshold (hot-patched via remote_tune command)
 volatile int g_reflex_threshold = REFLEX_THRESHOLD;
@@ -55,19 +81,22 @@ void fifo_isr() {
 
 // -- Acquisition + Reflex thread -----------------------------------
 void acq_thread_func(void*, void*, void*) {
-  float batch[FIFO_WATERMARK * 3];  // x,y,z interleaved
-  int   batch_idx = 0;
+  int batch_idx = 0;
 
   while (true) {
     k_sem_take(&fifo_sem, K_FOREVER);
 
     // 1. Drain SAMPLES_PER_IRQ entries from LIS3DH FIFO
     for (int i = 0; i < SAMPLES_PER_IRQ; i++) {
+      if (batch_idx >= FIFO_WATERMARK) break; // Prevent buffer overflow
       float x, y, z;
       imu.readFIFO(x, y, z);
-      batch[batch_idx * 3 + 0] = x;
-      batch[batch_idx * 3 + 1] = y;
-      batch[batch_idx * 3 + 2] = z;
+      batch[batch_idx].timestamp_us = micros();
+      batch[batch_idx].sequence_id  = seq_counter++;
+      batch[batch_idx].accel_x      = x;
+      batch[batch_idx].accel_y      = y;
+      batch[batch_idx].accel_z      = z;
+      batch[batch_idx].board_temp   = last_temp_c;
       batch_idx++;
     }
 
@@ -82,12 +111,20 @@ void acq_thread_func(void*, void*, void*) {
       }
       last_batch_ts = millis();
 
+      // Extract raw acceleration values for Edge Impulse classifier
+      float ei_batch[FIFO_WATERMARK * 3];
+      for (int i = 0; i < FIFO_WATERMARK; i++) {
+        ei_batch[i * 3 + 0] = batch[i].accel_x;
+        ei_batch[i * 3 + 1] = batch[i].accel_y;
+        ei_batch[i * 3 + 2] = batch[i].accel_z;
+      }
+
       // Phase 1: EI inference
       ei_impulse_result_t result = {};
       bool anomaly_detected = false;
 
       EI_IMPULSE_ERROR ei_err = run_classifier(
-          batch,
+          ei_batch,
           EI_CLASSIFIER_DSP_INPUT_FRAME_SIZE,
           &result,
           false
@@ -99,7 +136,12 @@ void acq_thread_func(void*, void*, void*) {
       } else {
         // EI model unavailable — RMS fallback (scaled to mg to match threshold)
         float rms_sq = 0.0f;
-        for (int i = 0; i < FIFO_WATERMARK * 3; i++) rms_sq += batch[i] * batch[i];
+        for (int i = 0; i < FIFO_WATERMARK; i++) {
+          float x = batch[i].accel_x;
+          float y = batch[i].accel_y;
+          float z = batch[i].accel_z;
+          rms_sq += x * x + y * y + z * z;
+        }
         float rms_mg = sqrtf(rms_sq / (FIFO_WATERMARK * 3)) * 1000.0f;
         anomaly_detected = (rms_mg > g_reflex_threshold);
       }
@@ -107,19 +149,19 @@ void acq_thread_func(void*, void*, void*) {
       if (anomaly_detected) {
         // Significance Filter: Avoid triggering MPU on noise spikes
         // Calculate variance on the magnitude of the 3D acceleration vectors
-        float sum = 0, sq_sum = 0;
+        double sum = 0, sq_sum = 0;
         int n = FIFO_WATERMARK;
         for(int i = 0; i < n; i++) {
-          float x = batch[i * 3 + 0];
-          float y = batch[i * 3 + 1];
-          float z = batch[i * 3 + 2];
-          float mag = sqrtf(x*x + y*y + z*z) * 1000.0f; // Scale to mg
+          float x = batch[i].accel_x;
+          float y = batch[i].accel_y;
+          float z = batch[i].accel_z;
+          double mag = sqrt(x*x + y*y + z*z) * 1000.0; // Scale to mg
           sum += mag;
           sq_sum += mag * mag;
         }
-        float variance = (sq_sum / n) - ((sum/n)*(sum/n));
+        double variance = (sq_sum / n) - ((sum/n)*(sum/n));
 
-        if (variance < 50.0f) { 
+        if (variance < 50.0) { 
           // Ignore insignificant trigger (variance < 50 mg^2, std dev < 7.07 mg)
           anomaly_detected = false; 
         }
@@ -136,14 +178,14 @@ void acq_thread_func(void*, void*, void*) {
           g_reflex_pin_active = true;
 
           // Then notify MPU for Cognition layer
-          Bridge.notify("anomaly_trigger", batch, sizeof(batch));
+          Bridge.notify("anomaly_trigger", (uint8_t*)batch, sizeof(batch));
         } else {
           // Rate-limited: Demote to standard sensor batch
-          Bridge.notify("sensor_batch", batch, sizeof(batch));
+          Bridge.notify("sensor_batch", (uint8_t*)batch, sizeof(batch));
         }
       } else {
         // Normal batch — cheaper packet
-        Bridge.notify("sensor_batch", batch, sizeof(batch));
+        Bridge.notify("sensor_batch", (uint8_t*)batch, sizeof(batch));
       }
     }
   }
@@ -187,7 +229,10 @@ void onSamplingMode(const String& cmd, const String& payload) {
   if (key) {
     const char* colon = strchr(key, ':');
     if (colon) {
-      g_sampling_interval_ms = strtol(colon + 1, NULL, 10);
+      int interval = strtol(colon + 1, NULL, 10);
+      if (interval >= 0) {
+        g_sampling_interval_ms = interval;
+      }
     }
   }
 }
@@ -210,6 +255,13 @@ void setup() {
   Bridge.onCommand("heartbeat", onHeartbeat);
   Bridge.onCommand("sampling_mode", onSamplingMode);
 
+  tempSensor.begin();
+  tempSensor.setResolution(12);
+  tempSensor.setWaitForConversion(false);
+  tempSensor.requestTemperatures();
+  temp_req_pending = true;
+  temp_req_ms = millis();
+
   g_last_heartbeat_ts = millis();
 }
 
@@ -228,5 +280,16 @@ void loop() {
       Serial.println("[MCU] HEARTBEAT LOST: Entering Safe-Local Mode");
     }
   }
+
+  // --- Async temperature read (non-blocking) ---
+  if (temp_req_pending && (millis() - temp_req_ms >= DS18B20_CONV_MS)) {
+    float t = tempSensor.getTempCByIndex(0);
+    if (t > -100.0f) last_temp_c = t;
+    temp_req_pending = false;
+    tempSensor.requestTemperatures();
+    temp_req_pending = true;
+    temp_req_ms = millis();
+  }
+
   k_sleep(K_MSEC(100));
 }

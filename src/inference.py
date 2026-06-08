@@ -106,7 +106,8 @@ class DiagnosticEngine:
     def _onnx_infer(self, samples: np.ndarray) -> np.ndarray:
         inp_name = self._session.get_inputs()[0].name
         out_name = self._session.get_outputs()[0].name
-        flat = samples.flatten().astype(np.float32).reshape(1, -1)
+        accel_only = samples[:, :3]
+        flat = accel_only.flatten().astype(np.float32).reshape(1, -1)
         logits = self._session.run([out_name], {inp_name: flat})[0]
         e = np.exp(logits - logits.max())
         return (e / e.sum()).flatten()

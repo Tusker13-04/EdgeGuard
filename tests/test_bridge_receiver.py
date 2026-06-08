@@ -1,4 +1,3 @@
-import pytest
 import numpy as np
 import struct
 from src.bridge_receiver import BridgeParser
