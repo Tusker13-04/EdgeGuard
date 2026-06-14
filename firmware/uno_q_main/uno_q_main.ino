@@ -15,7 +15,8 @@
 #include <zephyr/kernel.h>
 #include <vector>
 #include <Wire.h>
-#include <SparkFunLIS3DH.h>
+#include <Adafruit_LIS3DH.h>
+#include <Adafruit_Sensor.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
 #include <Arduino_RouterBridge.h>
@@ -53,7 +54,7 @@ struct __attribute__((packed)) SensorPayload {
 };
 static_assert(sizeof(SensorPayload) == 24, "Payload size mismatch");
 
-LIS3DH imu(I2C_MODE, 0x18); // Default I2C address
+Adafruit_LIS3DH imu = Adafruit_LIS3DH();
 OneWire oneWire(ONE_WIRE_PIN);
 DallasTemperature tempSensor(&oneWire);
 
@@ -85,9 +86,11 @@ void acq_thread_func(void*, void*, void*) {
     if (batch_idx < FIFO_WATERMARK) {
       batch[batch_idx].timestamp_us = micros();
       batch[batch_idx].sequence_id  = seq_counter++;
-      batch[batch_idx].accel_x      = imu.readFloatAccelX();
-      batch[batch_idx].accel_y      = imu.readFloatAccelY();
-      batch[batch_idx].accel_z      = imu.readFloatAccelZ();
+      sensors_event_t event;
+      imu.getEvent(&event);
+      batch[batch_idx].accel_x      = event.acceleration.x;
+      batch[batch_idx].accel_y      = event.acceleration.y;
+      batch[batch_idx].accel_z      = event.acceleration.z;
       batch[batch_idx].board_temp   = last_temp_c;
       batch_idx++;
     }
@@ -240,7 +243,7 @@ void setup() {
   digitalWrite(REFLEX_ALERT_PIN, LOW);
 
   Wire.begin();
-  if (!imu.begin()) {
+  if (!imu.begin(0x18)) {
     Serial.println("[MCU] ERROR: LIS3DH accelerometer initialization failed!");
   }
 
