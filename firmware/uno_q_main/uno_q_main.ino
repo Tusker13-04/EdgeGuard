@@ -30,6 +30,7 @@ DallasTemperature tempSensor(&oneWire);
 // Globals
 volatile float last_temp_c = 25.0f;
 uint32_t seq_counter = 0;
+bool g_sensor_connected = false;
 
 volatile int g_reflex_threshold = REFLEX_THRESHOLD;
 volatile int g_active_threshold = REFLEX_THRESHOLD;
@@ -83,7 +84,11 @@ void setup() {
   digitalWrite(REFLEX_ALERT_PIN, LOW);
 
   Wire.begin();
-  imu.begin(0x18);
+  if (imu.begin(0x18)) {
+    g_sensor_connected = true;
+  } else {
+    g_sensor_connected = false;
+  }
 
   Bridge.begin();
   Bridge.provide("remote_tune", onRemoteTune);
@@ -114,11 +119,21 @@ void loop() {
     if (batch_idx < FIFO_WATERMARK) {
       batch[batch_idx].timestamp_us = micros();
       batch[batch_idx].sequence_id  = seq_counter++;
-      sensors_event_t event;
-      imu.getEvent(&event);
-      batch[batch_idx].accel_x      = event.acceleration.x;
-      batch[batch_idx].accel_y      = event.acceleration.y;
-      batch[batch_idx].accel_z      = event.acceleration.z;
+      
+      if (g_sensor_connected) {
+        sensors_event_t event;
+        imu.getEvent(&event);
+        batch[batch_idx].accel_x      = event.acceleration.x;
+        batch[batch_idx].accel_y      = event.acceleration.y;
+        batch[batch_idx].accel_z      = event.acceleration.z;
+      } else {
+        // Generate dummy sine-wave data for testing when hardware is disconnected
+        float t_sec = now / 1000.0f;
+        batch[batch_idx].accel_x      = sin(t_sec * 2.0f * PI) * 5.0f;
+        batch[batch_idx].accel_y      = cos(t_sec * 2.0f * PI) * 5.0f;
+        batch[batch_idx].accel_z      = 9.81f + sin(t_sec * 1.0f * PI) * 2.0f;
+      }
+      
       batch[batch_idx].board_temp   = last_temp_c;
       batch_idx++;
     }
