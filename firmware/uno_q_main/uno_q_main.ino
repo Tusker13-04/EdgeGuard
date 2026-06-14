@@ -16,7 +16,7 @@
 #include <SparkFunLIS3DH.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
-#include <ArduinoBridge.h>
+#include <Arduino_RouterBridge.h>
 #include <ArduinoJson.h>
 #include "config.h"
 
