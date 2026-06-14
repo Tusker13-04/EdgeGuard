@@ -40,3 +40,10 @@ cq_env/
 # IDEs
 .vscode/
 .idea/
+
+# Custom Exclusions
+.rtk/
+.agent/
+.agents/
+EdgeGuard_Schematic.svg
+Hackster_Documentation.md

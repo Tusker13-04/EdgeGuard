@@ -36,3 +36,8 @@ The IPC (Inter-Process Communication) bridge between the STM32 and Qualcomm need
    - Dockerize the Python pipeline so it can be deployed predictably to the Qualcomm MPU.
 2. **Over-The-Air (OTA) Updates**
    - Set up an OTA pipeline for safely flashing `uno_q_main.ino` firmware payloads to the STM32 while keeping the MPU runtime stable.
+
+## Phase 5: Architecture & Domain Model Improvements (R6)
+1. **Extract Variance Calculation**
+   - **Current State:** `main.py` calculates variance manually in the pipeline runner loop (Anemic Domain Model). This prevents the variance logic from being unit-tested without launching the entire multithreaded pipeline, and prevents reuse.
+   - **Future Plan:** Extract variance and adaptive sampling logic into `src/inference.py` or a dedicated `AdaptiveSampler` class.
