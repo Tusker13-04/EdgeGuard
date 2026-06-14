@@ -52,11 +52,9 @@ struct __attribute__((packed)) SensorPayload {
 };
 static_assert(sizeof(SensorPayload) == 24, "Payload size mismatch");
 
-LIS3DH imu(Wire1);          // Qwiic / I2C4 on RA4M1
+LIS3DH imu(I2C_MODE, 0x18); // Default I2C address
 OneWire oneWire(ONE_WIRE_PIN);
 DallasTemperature tempSensor(&oneWire);
-
-K_SEM_DEFINE(fifo_sem, 0, FIFO_WATERMARK / SAMPLES_PER_IRQ);  // FLAW-02 fix
 
 // Globals
 volatile float last_temp_c = 25.0f;
@@ -76,28 +74,19 @@ volatile int g_sampling_interval_ms = 0;
 volatile uint32_t g_reflex_pin_high_ts = 0;
 volatile bool g_reflex_pin_active = false;
 
-// -- FIFO watermark ISR --------------------------------------------
-void fifo_isr() {
-  k_sem_give(&fifo_sem);
-}
-
 // -- Acquisition + Reflex thread -----------------------------------
 void acq_thread_func(void*, void*, void*) {
   int batch_idx = 0;
 
   while (true) {
-    k_sem_take(&fifo_sem, K_FOREVER);
+    k_sleep(K_MSEC(10)); // 100 Hz sampling
 
-    // 1. Drain SAMPLES_PER_IRQ entries from LIS3DH FIFO
-    for (int i = 0; i < SAMPLES_PER_IRQ; i++) {
-      if (batch_idx >= FIFO_WATERMARK) break; // Prevent buffer overflow
-      float x, y, z;
-      imu.readFIFO(x, y, z);
+    if (batch_idx < FIFO_WATERMARK) {
       batch[batch_idx].timestamp_us = micros();
       batch[batch_idx].sequence_id  = seq_counter++;
-      batch[batch_idx].accel_x      = x;
-      batch[batch_idx].accel_y      = y;
-      batch[batch_idx].accel_z      = z;
+      batch[batch_idx].accel_x      = imu.readFloatAccelX();
+      batch[batch_idx].accel_y      = imu.readFloatAccelY();
+      batch[batch_idx].accel_z      = imu.readFloatAccelZ();
       batch[batch_idx].board_temp   = last_temp_c;
       batch_idx++;
     }
@@ -249,17 +238,15 @@ void setup() {
   pinMode(REFLEX_ALERT_PIN, OUTPUT);
   digitalWrite(REFLEX_ALERT_PIN, LOW);
 
-  Wire1.begin();
+  Wire.begin();
   if (!imu.begin()) {
     Serial.println("[MCU] ERROR: LIS3DH accelerometer initialization failed!");
   }
-  imu.setFIFOMode(LIS3DH_FIFO_STREAM, SAMPLES_PER_IRQ);
-  imu.attachInterrupt(fifo_isr);
 
   Bridge.begin();
-  Bridge.onCommand(REMOTE_TUNE_CMD, onRemoteTune);
-  Bridge.onCommand("heartbeat", onHeartbeat);
-  Bridge.onCommand("sampling_mode", onSamplingMode);
+  Bridge.bind(REMOTE_TUNE_CMD, onRemoteTune);
+  Bridge.bind("heartbeat", onHeartbeat);
+  Bridge.bind("sampling_mode", onSamplingMode);
 
   tempSensor.begin();
   tempSensor.setResolution(12);
