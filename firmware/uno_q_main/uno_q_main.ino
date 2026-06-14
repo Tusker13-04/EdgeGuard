@@ -17,6 +17,7 @@
 #include <OneWire.h>
 #include <DallasTemperature.h>
 #include <ArduinoBridge.h>
+#include <ArduinoJson.h>
 #include "config.h"
 
 #define ONE_WIRE_PIN 4
@@ -196,19 +197,21 @@ K_THREAD_DEFINE(acq_thread, 4096, acq_thread_func, NULL, NULL, NULL, 5, 0, 0);
 // -- Phase 3: Remote Tuning & Control handlers ---------------------
 void onRemoteTune(const String& cmd, const String& payload) {
   // Expected payload: {"threshold": 1800}
-  const char* p = payload.c_str();
-  const char* thresh_key = strstr(p, "\"threshold\"");
-  if (thresh_key) {
-    const char* colon = strchr(thresh_key, ':');
-    if (colon) {
-      int new_thresh = strtol(colon + 1, NULL, 10);
-      if (new_thresh > 0) {
-        g_reflex_threshold = new_thresh;
-        g_active_threshold = new_thresh; // Cache latest tuned threshold
-        char ack_buf[16];
-        int len = snprintf(ack_buf, sizeof(ack_buf), "%d", new_thresh);
-        Bridge.notify("tune_ack", ack_buf, len);
-      }
+  StaticJsonDocument<128> doc;
+  DeserializationError error = deserializeJson(doc, payload);
+  if (error) {
+    Serial.println("[MCU] ERROR: Malformed JSON in onRemoteTune");
+    return;
+  }
+  
+  if (doc.containsKey("threshold")) {
+    int new_thresh = doc["threshold"];
+    if (new_thresh > 0) {
+      g_reflex_threshold = new_thresh;
+      g_active_threshold = new_thresh; // Cache latest tuned threshold
+      char ack_buf[16];
+      int len = snprintf(ack_buf, sizeof(ack_buf), "%d", new_thresh);
+      Bridge.notify("tune_ack", ack_buf, len);
     }
   }
 }
@@ -224,15 +227,14 @@ void onHeartbeat(const String& cmd, const String& payload) {
 
 void onSamplingMode(const String& cmd, const String& payload) {
   // Expected payload: {"interval_ms": 100}
-  const char* p = payload.c_str();
-  const char* key = strstr(p, "\"interval_ms\"");
-  if (key) {
-    const char* colon = strchr(key, ':');
-    if (colon) {
-      int interval = strtol(colon + 1, NULL, 10);
-      if (interval >= 0) {
-        g_sampling_interval_ms = interval;
-      }
+  StaticJsonDocument<128> doc;
+  DeserializationError error = deserializeJson(doc, payload);
+  if (error) return;
+  
+  if (doc.containsKey("interval_ms")) {
+    int interval = doc["interval_ms"];
+    if (interval >= 0) {
+      g_sampling_interval_ms = interval;
     }
   }
 }
