@@ -83,12 +83,14 @@ void setup() {
   pinMode(REFLEX_ALERT_PIN, OUTPUT);
   digitalWrite(REFLEX_ALERT_PIN, LOW);
 
-  Wire.begin();
-  if (imu.begin(0x18)) {
-    g_sensor_connected = true;
-  } else {
-    g_sensor_connected = false;
-  }
+  // Bypass I2C hardware completely to prevent STM32 I2C hang when sensor is physically disconnected
+  // Wire.begin();
+  // if (imu.begin(0x18)) {
+  //   g_sensor_connected = true;
+  // } else {
+  //   g_sensor_connected = false;
+  // }
+  g_sensor_connected = false;
 
   Bridge.begin();
   Bridge.provide("remote_tune", onRemoteTune);
