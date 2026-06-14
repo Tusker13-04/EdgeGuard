@@ -13,6 +13,7 @@
 
 #include <Arduino.h>
 #include <zephyr/kernel.h>
+#include <vector>
 #include <SparkFunLIS3DH.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
@@ -179,14 +180,17 @@ void acq_thread_func(void*, void*, void*) {
           g_reflex_pin_active = true;
 
           // Then notify MPU for Cognition layer
-          Bridge.notify("anomaly_trigger", (uint8_t*)batch, sizeof(batch));
+          std::vector<uint8_t> payload((uint8_t*)batch, (uint8_t*)batch + sizeof(batch));
+          Bridge.notify("anomaly_trigger", payload);
         } else {
           // Rate-limited: Demote to standard sensor batch
-          Bridge.notify("sensor_batch", (uint8_t*)batch, sizeof(batch));
+          std::vector<uint8_t> payload((uint8_t*)batch, (uint8_t*)batch + sizeof(batch));
+          Bridge.notify("sensor_batch", payload);
         }
       } else {
         // Normal batch — cheaper packet
-        Bridge.notify("sensor_batch", (uint8_t*)batch, sizeof(batch));
+        std::vector<uint8_t> payload((uint8_t*)batch, (uint8_t*)batch + sizeof(batch));
+        Bridge.notify("sensor_batch", payload);
       }
     }
   }
@@ -210,8 +214,8 @@ void onRemoteTune(const String& cmd, const String& payload) {
       g_reflex_threshold = new_thresh;
       g_active_threshold = new_thresh; // Cache latest tuned threshold
       char ack_buf[16];
-      int len = snprintf(ack_buf, sizeof(ack_buf), "%d", new_thresh);
-      Bridge.notify("tune_ack", ack_buf, len);
+      snprintf(ack_buf, sizeof(ack_buf), "%d", new_thresh);
+      Bridge.notify("tune_ack", String(ack_buf));
     }
   }
 }
