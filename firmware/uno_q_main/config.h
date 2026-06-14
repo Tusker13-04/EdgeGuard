@@ -2,7 +2,7 @@
 #define CONFIG_H
 
 // --- Sampling & FIFO -----------------------------------------------
-#define FIFO_WATERMARK       5
+#define FIFO_WATERMARK       1
 #define SAMPLES_PER_IRQ       25
 
 // --- Phase 1: Reflex Layer -----------------------------------------
