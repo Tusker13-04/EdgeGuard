@@ -197,7 +197,6 @@ void onRemoteTune(String payload) {
   StaticJsonDocument<128> doc;
   DeserializationError error = deserializeJson(doc, payload);
   if (error) {
-    Serial.println("[MCU] ERROR: Malformed JSON in onRemoteTune");
     return;
   }
   
@@ -218,7 +217,6 @@ void onHeartbeat(String payload) {
   if (g_local_safe_mode) {
     g_local_safe_mode = false;
     g_reflex_threshold = g_active_threshold; // Restore MPU-tuned threshold
-    Serial.println("[MCU] HEARTBEAT RESTORED: Resuming normal threshold");
   }
 }
 
@@ -238,14 +236,11 @@ void onSamplingMode(String payload) {
 
 // -- Setup ---------------------------------------------------------
 void setup() {
-  Serial.begin(115200);
   pinMode(REFLEX_ALERT_PIN, OUTPUT);
   digitalWrite(REFLEX_ALERT_PIN, LOW);
 
   Wire.begin();
-  if (!imu.begin(0x18)) {
-    Serial.println("[MCU] ERROR: LIS3DH accelerometer initialization failed!");
-  }
+  imu.begin(0x18);
 
   Bridge.begin();
   Bridge.provide("remote_tune", onRemoteTune);
@@ -274,7 +269,6 @@ void loop() {
     if (!g_local_safe_mode) {
       g_local_safe_mode = true;
       g_reflex_threshold = 1200; // High sensitivity fallback
-      Serial.println("[MCU] HEARTBEAT LOST: Entering Safe-Local Mode");
     }
   }
 
