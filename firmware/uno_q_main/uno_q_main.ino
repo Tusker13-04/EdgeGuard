@@ -14,6 +14,7 @@
 #include <Arduino.h>
 #include <zephyr/kernel.h>
 #include <vector>
+#include <Wire.h>
 #include <SparkFunLIS3DH.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
@@ -188,7 +189,7 @@ void acq_thread_func(void*, void*, void*) {
 K_THREAD_DEFINE(acq_thread, 4096, acq_thread_func, NULL, NULL, NULL, 5, 0, 0);
 
 // -- Phase 3: Remote Tuning & Control handlers ---------------------
-void onRemoteTune(const String& cmd, const String& payload) {
+void onRemoteTune(String payload) {
   // Expected payload: {"threshold": 1800}
   StaticJsonDocument<128> doc;
   DeserializationError error = deserializeJson(doc, payload);
@@ -209,7 +210,7 @@ void onRemoteTune(const String& cmd, const String& payload) {
   }
 }
 
-void onHeartbeat(const String& cmd, const String& payload) {
+void onHeartbeat(String payload) {
   g_last_heartbeat_ts = millis();
   if (g_local_safe_mode) {
     g_local_safe_mode = false;
@@ -218,7 +219,7 @@ void onHeartbeat(const String& cmd, const String& payload) {
   }
 }
 
-void onSamplingMode(const String& cmd, const String& payload) {
+void onSamplingMode(String payload) {
   // Expected payload: {"interval_ms": 100}
   StaticJsonDocument<128> doc;
   DeserializationError error = deserializeJson(doc, payload);
@@ -244,9 +245,9 @@ void setup() {
   }
 
   Bridge.begin();
-  Bridge.bind(REMOTE_TUNE_CMD, onRemoteTune);
-  Bridge.bind("heartbeat", onHeartbeat);
-  Bridge.bind("sampling_mode", onSamplingMode);
+  Bridge.provide("remote_tune", onRemoteTune);
+  Bridge.provide("heartbeat", onHeartbeat);
+  Bridge.provide("sampling_mode", onSamplingMode);
 
   tempSensor.begin();
   tempSensor.setResolution(12);
