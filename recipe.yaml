@@ -1,0 +1,43 @@
+---
+RecipeFormatVersion: "2020-01-25"
+ComponentName: "com.edgeguard.inference"
+ComponentVersion: "1.0.0"
+ComponentDescription: "EdgeGuard Multimodal Inference Pipeline for Arduino UNO Q MPU"
+ComponentPublisher: "EdgeGuard"
+ComponentConfiguration:
+  DefaultConfiguration:
+    EDGEGUARD_RMS_THRESHOLD: "2000"
+    EDGEGUARD_ANOMALY_TRIGGER_THRESHOLD: "0.75"
+    accessControl:
+      aws.greengrass.ipc.mqttproxy:
+        "com.edgeguard.inference:mqtt:1":
+          policyDescription: "Allow publishing telemetry to AWS IoT Core"
+          operations:
+            - "aws.greengrass#PublishToIoTCore"
+          resources:
+            - "edgeguard/telemetry"
+      aws.greengrass.ipc.pubsub:
+        "com.edgeguard.inference:pubsub:1":
+          policyDescription: "Allow local shadow pubsub"
+          operations:
+            - "*"
+          resources:
+            - "*"
+Manifests:
+  - Platform:
+      os: linux
+      architecture: aarch64
+    Lifecycle:
+      Install:
+        script: |-
+          python3 -m venv {artifacts:path}/venv
+          {artifacts:path}/venv/bin/pip install -r {artifacts:path}/requirements.txt
+      Run:
+        script: |-
+          export EDGEGUARD_RMS_THRESHOLD="{configuration:/EDGEGUARD_RMS_THRESHOLD}"
+          export EDGEGUARD_ANOMALY_TRIGGER_THRESHOLD="{configuration:/EDGEGUARD_ANOMALY_TRIGGER_THRESHOLD}"
+          export PYTHONPATH="{artifacts:path}"
+          {artifacts:path}/venv/bin/python3 -u {artifacts:path}/main.py
+    Artifacts:
+      - URI: s3://edgeguard-artifacts/com.edgeguard.inference/1.0.0/edgeguard-source.zip
+        Unarchive: ZIP

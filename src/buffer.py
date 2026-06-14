@@ -23,10 +23,6 @@ from src.schema import N_FEATURES  # 4
 # Default capacity: 4 seconds at 400 Hz = 1600 rows
 DEFAULT_CAPACITY = 1600
 
-# Column index constants — update here if firmware column order ever changes
-ACCEL_COLS = slice(0, 3)   # indices 0,1,2 = accel_x, accel_y, accel_z
-TEMP_COL   = 3             # index  3      = board_temp
-
 
 class FastCircularBuffer:
     """

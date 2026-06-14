@@ -44,6 +44,7 @@ from typing import Literal
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 log = logging.getLogger("edgeguard.server")
@@ -55,11 +56,23 @@ MAIN_PY = str(Path(__file__).resolve().parent.parent / "main.py")
 _DEMO_FILE       = os.environ.get("EDGEGUARD_DEMO",           "")
 _MODE            = os.environ.get("EDGEGUARD_MODE",           "bridge")
 _BRIDGE_FIFO     = os.environ.get("EDGEGUARD_BRIDGE_FIFO",    "")
-_MAX_CLIENTS     = int(os.environ.get("EDGEGUARD_MAX_CLIENTS", "10"))
+try:
+    _MAX_CLIENTS = int(os.environ.get("EDGEGUARD_MAX_CLIENTS", "10"))
+except ValueError:
+    _MAX_CLIENTS = 10
+
 _ALLOWED_ORIGINS = [
     o.strip() for o in os.environ.get("EDGEGUARD_ALLOWED_ORIGINS", "").split(",")
     if o.strip()
 ]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_ALLOWED_ORIGINS if _ALLOWED_ORIGINS else ["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # ── Inference mode state ──────────────────────────────────────────────────
 InferenceMode = Literal["high_power", "low_power"]
@@ -277,7 +290,7 @@ async def websocket_endpoint(ws: WebSocket) -> None:
 
     if _ALLOWED_ORIGINS:
         origin = ws.headers.get("origin", "")
-        if origin not in _ALLOWED_ORIGINS and origin != "null":
+        if origin not in _ALLOWED_ORIGINS:
             await ws.close(code=1008)
             return
 

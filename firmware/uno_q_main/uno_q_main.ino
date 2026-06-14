@@ -112,7 +112,7 @@ void acq_thread_func(void*, void*, void*) {
       last_batch_ts = millis();
 
       // Extract raw acceleration values for Edge Impulse classifier
-      float ei_batch[FIFO_WATERMARK * 3];
+      static float ei_batch[FIFO_WATERMARK * 3];
       for (int i = 0; i < FIFO_WATERMARK; i++) {
         ei_batch[i * 3 + 0] = batch[i].accel_x;
         ei_batch[i * 3 + 1] = batch[i].accel_y;

@@ -30,6 +30,7 @@ venv/
 .venv/
 env/
 .env/
+cq_env/
 
 # Worktrees
 .worktrees/

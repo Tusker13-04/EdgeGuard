@@ -242,6 +242,27 @@ def run_live(
             if len(snap) == 0:
                 continue
                 
+            import numpy as np
+            accel_data = np.array(snap).reshape(-1, 4)[:, :3]
+            variance = np.var(accel_data)
+            
+            if is_low_power:
+                if variance > 0.05:
+                    log.info("Vibration detected, waking up from low_power mode.")
+                    low_power_event.clear()
+                    if hasattr(receiver, "idle_start"):
+                        del receiver.idle_start
+            else:
+                if variance < 0.01:
+                    if not hasattr(receiver, "idle_start"):
+                        receiver.idle_start = time.time()
+                    elif time.time() - receiver.idle_start > 300:
+                        log.info("No vibration for 5 minutes, engaging adaptive low_power mode.")
+                        low_power_event.set()
+                else:
+                    if hasattr(receiver, "idle_start"):
+                        del receiver.idle_start
+                
             t0 = time.perf_counter()
             telemetry = engine.process_batch(
                 snap.flatten().tolist(), 
@@ -256,7 +277,7 @@ def run_live(
             print(json.dumps(telemetry), flush=True)
             
     except Exception as exc:
-        log.critical("[Main] Pipeline crashed: %s", exc)
+        log.critical("[Main] Pipeline crashed: %s", exc, exc_info=True)
         stop_event.set()
         raise
     finally:

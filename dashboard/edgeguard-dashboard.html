@@ -4,72 +4,67 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>EdgeGuard — Industrial Predictive Maintenance</title>
-  
-  <!-- CDNs for Fonts & Icons -->
+  <meta name="description" content="Real-time industrial predictive maintenance dashboard with live fault classification, pipeline telemetry, and anomaly history.">
+
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700&family=Inter:wght@400;500;600;700&family=Rubik:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
-  
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://unpkg.com/lucide@latest"></script>
 
   <style>
-            /* ─── Design System Tokens ────────────────────────────────────────── */
+    /* ─── Design System Tokens ─────────────────────────────────────── */
     :root {
-      /* PipelinePro Fonts */
-      --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
       --font-body: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-      --font-mono: 'Source Code Pro', monospace;
-      
-      /* Sentry Fonts */
-      --font-sentry-display: 'Rubik', sans-serif;
-      --font-sentry-mono: 'Monaco', monospace;
+      --font-mono: 'JetBrains Mono', monospace;
 
-      /* PipelinePro Colors (Light Theme Base) */
-      --color-bg:             #FAFAFA;
-      --color-surface:        #FFFFFF;
-      --color-surface-2:      #F4F4F5;
-      --color-surface-offset: #F4F4F5;
-      --color-border:         #E4E4E7;
-      --color-text:           #18181B;
-      --color-text-muted:     #71717A;
-      --color-text-faint:     #A1A1AA;
-      
-      /* Sentry Anomaly Handling Colors */
-      --color-sentry-bg:      #150f23;
-      --color-sentry-ink:     #1f1633;
-      --color-sentry-text:    #ffffff;
-      --color-sentry-lime:    #c2ef4e;
-      --color-sentry-muted:   #bdb8c0;
-      
-      /* Semantic mapping */
-      --color-primary:   #4F46E5;
-      --color-success:   #22C55E;
-      --color-warning:   #F59E0B;
-      --color-error:     #EF4444;
-      --color-paused:    #71717A;
-      
+      /* Core palette — dark with depth */
+      --color-bg:        #080b10;
+      --color-surface:   #0d1117;
+      --color-surface-2: #131920;
+      --color-surface-3: #192030;
+      --color-border:    #1c2535;
+      --color-border-hi: #263040;
+      --color-text:      #e2e8f0;
+      --color-muted:     #6b7a91;
+      --color-faint:     #374151;
+
+      /* Semantic */
+      --color-primary:   #3b82f6;
+      --color-primary-hi:#60a5fa;
+      --color-success:   #22c55e;
+      --color-warning:   #f59e0b;
+      --color-error:     #ef4444;
+      --color-paused:    #6b7a91;
+
       /* Fault class accents */
-      --color-normal:    #22C55E;
-      --color-imbalance: #F59E0B;
-      --color-bearing:   #EF4444;
-      --color-looseness: #F97316;
-      
-      --radius-sm: 4px;
+      --color-normal:    #22c55e;
+      --color-imbalance: #f59e0b;
+      --color-bearing:   #ef4444;
+      --color-looseness: #f97316;
+
+      /* Sentry anomaly card palette */
+      --color-sentry-bg:   #0c1018;
+      --color-sentry-ink:  #121822;
+      --color-sentry-text: #e2e8f0;
+      --color-sentry-lime: #a3e635;
+      --color-sentry-muted:#5a6878;
+
+      --radius-sm: 5px;
       --radius-md: 8px;
       --radius-lg: 12px;
-      --transition-fast: 150ms cubic-bezier(0.16, 1, 0.3, 1);
+
+      /* Custom easing curves — stronger than browser defaults */
+      --ease-out:    cubic-bezier(0.23, 1, 0.32, 1);
+      --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
     }
 
-    /* ─── Global Reset & Base Styles ──────────────────────────────────── */
-    *, *::before, *::after {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-    }
+    /* ─── Reset ────────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
-      background-color: var(--color-bg);
+      background: var(--color-bg);
       color: var(--color-text);
       font-family: var(--font-body);
       font-size: 14px;
@@ -77,335 +72,313 @@
       min-height: 100dvh;
       overflow-x: hidden;
       display: grid;
-      grid-template-rows: 48px 1fr;
+      grid-template-rows: 52px 1fr;
+      -webkit-font-smoothing: antialiased;
     }
 
-    input, button {
-      font-family: inherit;
-      color: inherit;
-    }
+    input, button { font-family: inherit; color: inherit; }
 
-    /* ─── Scrollbars ─────────────────────────────────────────────────── */
-    ::-webkit-scrollbar {
-      width: 6px;
-      height: 6px;
-    }
-    ::-webkit-scrollbar-track {
-      background: var(--color-bg);
-    }
-    ::-webkit-scrollbar-thumb {
-      background: var(--color-border);
-      border-radius: 3px;
-    }
-    ::-webkit-scrollbar-thumb:hover {
-      background: var(--color-text-faint);
-    }
+    /* ─── Scrollbars ───────────────────────────────────────────────── */
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--color-border-hi); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--color-faint); }
 
-    /* ─── Header ──────────────────────────────────────────────────────── */
+    /* ─── Header ───────────────────────────────────────────────────── */
     header {
-      background-color: var(--color-surface);
+      background: color-mix(in oklab, var(--color-surface) 90%, transparent);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
       border-bottom: 1px solid var(--color-border);
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 0 16px;
+      padding: 0 20px;
       position: sticky;
       top: 0;
       z-index: 100;
-      height: 48px;
+      height: 52px;
     }
 
     .brand-section {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 10px;
     }
 
-    .brand-section svg {
-      color: var(--color-primary);
+    .logo-mark {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      flex-shrink: 0;
+      overflow: hidden;
+      box-shadow: 0 0 0 1px rgba(59,130,246,0.2), 0 2px 10px rgba(59,130,246,0.12);
+    }
+
+    .logo-mark img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
     }
 
     h1 {
-      font-size: 15px;
-      font-weight: 700;
-      letter-spacing: -0.02em;
-      text-transform: uppercase;
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: -0.01em;
       color: var(--color-text);
-      display: flex;
-      align-items: center;
-      gap: 6px;
     }
 
-    .status-badge-container {
+    .header-right {
       display: flex;
       align-items: center;
       gap: 12px;
     }
 
+    /* ─── Pipeline Status Badge ───────────────────────────────────── */
     .pipeline-status {
       font-size: 11px;
       font-weight: 700;
       text-transform: uppercase;
-      letter-spacing: 0.05em;
-      padding: 2px 8px;
+      letter-spacing: 0.06em;
+      padding: 3px 10px;
       border-radius: var(--radius-sm);
-      background: var(--color-surface-offset);
-      border: 1px solid var(--color-border);
-      transition: all var(--transition-fast);
+      /* Specify exact properties — never `transition: all` */
+      transition: background 180ms var(--ease-out), color 180ms var(--ease-out), border-color 180ms var(--ease-out);
+      border: 1px solid transparent;
     }
 
-    .pipeline-status.running {
-      color: var(--color-success);
-      background-color: rgba(109, 170, 69, 0.1);
-      border-color: rgba(109, 170, 69, 0.2);
-    }
-    .pipeline-status.degraded {
-      color: var(--color-warning);
-      background-color: rgba(224, 123, 58, 0.1);
-      border-color: rgba(224, 123, 58, 0.2);
-    }
-    .pipeline-status.paused {
-      color: var(--color-paused);
-      background-color: rgba(79, 96, 96, 0.1);
-      border-color: rgba(79, 96, 96, 0.2);
-    }
-    .pipeline-status.fault {
-      color: var(--color-error);
-      background-color: rgba(196, 95, 160, 0.1);
-      border-color: rgba(196, 95, 160, 0.2);
-    }
+    .pipeline-status.running  { color: var(--color-success);  background: color-mix(in oklab, var(--color-success)  12%, transparent); border-color: color-mix(in oklab, var(--color-success)  30%, transparent); }
+    .pipeline-status.degraded { color: var(--color-warning);  background: color-mix(in oklab, var(--color-warning)  12%, transparent); border-color: color-mix(in oklab, var(--color-warning)  30%, transparent); }
+    .pipeline-status.paused   { color: var(--color-paused);   background: color-mix(in oklab, var(--color-paused)   12%, transparent); border-color: color-mix(in oklab, var(--color-paused)   30%, transparent); }
+    .pipeline-status.fault    { color: var(--color-error);    background: color-mix(in oklab, var(--color-error)    12%, transparent); border-color: color-mix(in oklab, var(--color-error)    30%, transparent); }
 
-    /* ─── Mode Toggle Switch ─────────────────────────────────────────── */
+    /* ─── Mode Toggle ─────────────────────────────────────────────── */
     .mode-toggle {
       display: flex;
       align-items: center;
       gap: 8px;
       background: var(--color-surface-2);
       border: 1px solid var(--color-border);
-      padding: 2px 8px;
+      padding: 4px 10px;
       border-radius: 999px;
       user-select: none;
     }
 
-    .mode-toggle-label {
+    .mode-label {
       font-size: 10px;
-      font-weight: 600;
+      font-weight: 700;
       text-transform: uppercase;
-      letter-spacing: 0.05em;
-      color: var(--color-text-muted);
+      letter-spacing: 0.06em;
+      color: var(--color-muted);
+      transition: color 150ms var(--ease-out);
     }
 
-    .mode-toggle-label.active {
-      color: var(--color-text);
-    }
+    .mode-label.active { color: var(--color-text); }
 
-    .switch-container {
+    /* Switch — min 44px touch target via container */
+    .switch-wrap {
       display: flex;
       align-items: center;
       justify-content: center;
       min-width: 44px;
-      min-height: 44px;
+      min-height: 32px;
     }
+
     .switch {
       position: relative;
       display: inline-block;
-      width: 32px;
-      height: 18px;
+      width: 30px;
+      height: 17px;
     }
 
-    .switch input {
-      opacity: 0;
-      width: 0;
-      height: 0;
-    }
+    .switch input { opacity: 0; width: 0; height: 0; }
 
     .slider {
       position: absolute;
       cursor: pointer;
       inset: 0;
-      background-color: var(--color-surface-offset);
-      border: 1px solid var(--color-border);
-      transition: var(--transition-fast);
+      background: var(--color-border-hi);
       border-radius: 34px;
+      transition: background 160ms var(--ease-out);
     }
 
     .slider::before {
+      content: '';
       position: absolute;
-      content: "";
-      height: 10px;
-      width: 10px;
-      left: 2px;
-      bottom: 2px;
-      background-color: var(--color-text-muted);
-      transition: var(--transition-fast);
+      height: 11px;
+      width: 11px;
+      left: 3px;
+      bottom: 3px;
+      background: var(--color-muted);
       border-radius: 50%;
+      transition: transform 180ms var(--ease-out), background 160ms var(--ease-out);
     }
 
-    input:checked + .slider {
-      background-color: var(--color-primary);
-      border-color: transparent;
-    }
+    input:checked + .slider { background: var(--color-primary); }
+    input:checked + .slider::before { transform: translateX(13px); background: #fff; }
 
-    input:checked + .slider::before {
-      transform: translateX(12px);
-      background-color: var(--color-bg);
-    }
-
-    .ws-connection {
+    /* ─── Connection Dot ──────────────────────────────────────────── */
+    .ws-row {
       display: flex;
       align-items: center;
       gap: 6px;
-      font-size: 12px;
-      font-family: var(--font-mono);
-      border-left: 1px solid var(--color-border);
       padding-left: 12px;
+      border-left: 1px solid var(--color-border);
     }
 
-    .connection-dot {
+    .conn-dot {
       width: 8px;
       height: 8px;
       border-radius: 50%;
-      background-color: var(--color-text-faint);
-      box-shadow: none;
-      transition: all var(--transition-fast);
+      background: var(--color-faint);
+      /* Transition only the exact properties */
+      transition: background 200ms var(--ease-out), box-shadow 200ms var(--ease-out);
     }
 
-    /* ─── Main Layout Structure ───────────────────────────────────────── */
+    .conn-dot.connected   { background: var(--color-success); box-shadow: 0 0 6px var(--color-success); }
+    .conn-dot.reconnecting{ background: var(--color-warning); box-shadow: 0 0 6px var(--color-warning); }
+    .conn-dot.failed      { background: var(--color-error);   box-shadow: 0 0 6px var(--color-error); }
+
+    /* ─── Layout Shell ────────────────────────────────────────────── */
     .layout-wrapper {
       display: grid;
-      grid-template-columns: 220px 1fr;
-      height: calc(100dvh - 48px);
+      grid-template-columns: 210px 1fr;
+      height: calc(100dvh - 52px);
       overflow: hidden;
     }
 
-    /* ─── Sidebar ─────────────────────────────────────────────────────── */
+    /* ─── Sidebar ─────────────────────────────────────────────────── */
     aside {
-      background-color: var(--color-surface);
+      background: var(--color-surface);
       border-right: 1px solid var(--color-border);
-      padding: 16px;
+      padding: 16px 12px;
       display: flex;
       flex-direction: column;
-      justify-content: space-between;
+      gap: 20px;
       overflow-y: auto;
-      position: sticky;
-      top: 0;
     }
 
-    .sidebar-section-title {
-      font-size: 11px;
-      font-weight: 600;
+    .sidebar-label {
+      font-size: 10px;
+      font-weight: 700;
       text-transform: uppercase;
-      letter-spacing: 0.08em;
-      color: var(--color-text-muted);
-      margin-bottom: 12px;
+      letter-spacing: 0.09em;
+      color: var(--color-muted);
+      margin-bottom: 8px;
+      padding: 0 4px;
     }
 
-    nav ul {
-      list-style: none;
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-    }
+    nav ul { list-style: none; display: flex; flex-direction: column; gap: 4px; }
 
     .nav-item {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 8px 12px;
-      min-height: 44px;
+      padding: 8px 10px;
       border-radius: var(--radius-md);
-      background-color: var(--color-surface-2);
+      background: var(--color-surface-2);
       border: 1px solid transparent;
       user-select: none;
+      min-height: 40px;
+      transition: border-color 150ms var(--ease-out), background 150ms var(--ease-out);
+    }
+
+    @media (hover: hover) and (pointer: fine) {
+      .nav-item:hover { background: var(--color-surface-3); border-color: var(--color-border); }
     }
 
     .nav-item-left {
       display: flex;
       align-items: center;
       gap: 8px;
+      font-size: 13px;
       font-weight: 500;
+      color: var(--color-text);
     }
 
     .stage-dot {
       width: 6px;
       height: 6px;
       border-radius: 50%;
-      background-color: var(--color-text-faint);
+      background: var(--color-faint);
+      transition: background 200ms var(--ease-out), box-shadow 200ms var(--ease-out);
+      flex-shrink: 0;
     }
 
-    .stage-dot.green { background-color: var(--color-success); }
-    .stage-dot.amber { background-color: var(--color-warning); }
-    .stage-dot.red   { background-color: var(--color-error); }
-    .stage-dot.paused { background-color: var(--color-paused); }
+    .stage-dot.green   { background: var(--color-success); box-shadow: 0 0 4px var(--color-success); }
+    .stage-dot.amber   { background: var(--color-warning); box-shadow: 0 0 4px var(--color-warning); }
+    .stage-dot.red     { background: var(--color-error);   box-shadow: 0 0 4px var(--color-error); }
+    .stage-dot.paused  { background: var(--color-paused); }
 
-    .sidebar-fault-summary {
-      background-color: var(--color-surface-2);
+    /* ─── Fault Summary ───────────────────────────────────────────── */
+    .fault-summary {
+      background: var(--color-surface-2);
       border: 1px solid var(--color-border);
       border-radius: var(--radius-md);
       padding: 12px;
       margin-top: auto;
     }
 
-    .fault-count-row {
+    .fault-row {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      margin-bottom: 6px;
+      padding: 4px 0;
     }
 
-    .fault-count-row:last-child {
-      margin-bottom: 0;
-    }
+    .fault-row + .fault-row { border-top: 1px solid var(--color-border); padding-top: 8px; margin-top: 4px; }
 
-    .fault-count-label {
-      font-size: 12px;
-      color: var(--color-text-muted);
+    .fault-row-label {
       display: flex;
       align-items: center;
-      gap: 6px;
-    }
-
-    .fault-count-badge {
-      font-family: var(--font-mono);
-      font-weight: 600;
+      gap: 7px;
       font-size: 12px;
+      color: var(--color-muted);
     }
 
-    .fault-indicator {
-      width: 8px;
-      height: 8px;
+    .fault-dot {
+      width: 7px;
+      height: 7px;
       border-radius: 50%;
     }
-    .fault-indicator.imbalance { background-color: var(--color-imbalance); }
-    .fault-indicator.bearing { background-color: var(--color-bearing); }
-    .fault-indicator.looseness { background-color: var(--color-looseness); }
 
-    /* ─── Main Content ────────────────────────────────────────────────── */
+    .fault-dot.imbalance { background: var(--color-imbalance); }
+    .fault-dot.bearing   { background: var(--color-bearing); }
+    .fault-dot.looseness { background: var(--color-looseness); }
+
+    .fault-count {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--color-faint);
+      transition: color 200ms var(--ease-out);
+    }
+
+    /* ─── Main Content ────────────────────────────────────────────── */
     main {
       padding: 16px;
       overflow-y: auto;
       display: flex;
       flex-direction: column;
-      gap: 16px;
-      max-width: 1400px;
-      margin: 0 auto;
+      gap: 14px;
       width: 100%;
     }
 
-    /* ─── Pipeline Flow Strip ─────────────────────────────────────────── */
-    .pipeline-strip-card {
-      background-color: var(--color-surface);
+    /* ─── Pipeline Strip ──────────────────────────────────────────── */
+    .pipeline-card {
+      background: var(--color-surface);
       border: 1px solid var(--color-border);
       border-radius: var(--radius-lg);
       padding: 12px 16px;
     }
 
-    .pipeline-flow-container {
+    .pipeline-flow {
       display: flex;
       align-items: center;
       justify-content: space-between;
       position: relative;
-      height: 36px;
+      height: 40px;
       overflow: hidden;
     }
 
@@ -413,7 +386,7 @@
       display: flex;
       flex-direction: column;
       align-items: center;
-      z-index: 10;
+      z-index: 2;
       position: relative;
       background: var(--color-surface);
       padding: 0 8px;
@@ -423,188 +396,175 @@
       width: 20px;
       height: 20px;
       border-radius: 50%;
-      background-color: var(--color-surface-offset);
+      background: var(--color-surface-2);
       border: 1px solid var(--color-border);
       display: flex;
       align-items: center;
       justify-content: center;
       margin-bottom: 4px;
-      transition: all var(--transition-fast);
+      transition: border-color 200ms var(--ease-out), box-shadow 200ms var(--ease-out);
     }
 
     .pipeline-node-icon.active {
       border-color: var(--color-primary);
-      box-shadow: 0 0 8px var(--color-primary);
+      box-shadow: 0 0 8px color-mix(in oklab, var(--color-primary) 50%, transparent);
     }
 
     .pipeline-node-label {
-      font-size: 10px;
-      font-weight: 600;
+      font-size: 9px;
+      font-weight: 700;
       text-transform: uppercase;
-      letter-spacing: 0.05em;
-      color: var(--color-text-muted);
+      letter-spacing: 0.07em;
+      color: var(--color-muted);
+      transition: color 200ms var(--ease-out);
     }
 
-    .pipeline-node-icon.active + .pipeline-node-label {
-      color: var(--color-text);
-    }
+    .pipeline-node-icon.active ~ .pipeline-node-label { color: var(--color-text); }
 
-    .pipeline-connector-svg {
+    .pipeline-connector {
       position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 24px;
-      z-index: 0;
+      top: 0; left: 0;
+      width: 100%; height: 20px;
+      z-index: 1;
       pointer-events: none;
     }
 
-    .pipeline-line {
-      stroke: var(--color-border);
-      stroke-width: 2px;
-      fill: none;
-    }
+    .pipe-line      { stroke: var(--color-border); stroke-width: 1.5; fill: none; }
+    .pipe-line-flow { stroke: var(--color-primary); stroke-width: 2; fill: none; opacity: 0.7;
+                      stroke-dasharray: 4 10; animation: dash 1.2s linear infinite; }
+    .pipe-line-flow.paused { animation-play-state: paused; opacity: 0.15; stroke: var(--color-paused); }
 
-    .pipeline-line-flow {
-      stroke: var(--color-primary);
-      stroke-width: 3px;
-      opacity: 0.8;
-      fill: none;
-      stroke-dasharray: 4 12;
-      animation: dash 1s linear infinite;
-    }
+    @keyframes dash { to { stroke-dashoffset: -14; } }
 
-    .pipeline-line-flow.paused {
-      animation-play-state: paused;
-      opacity: 0.2;
-      stroke: var(--color-paused);
-    }
-
-    @keyframes dash {
-      to {
-        stroke-dashoffset: -16;
-      }
-    }
-
-    /* ─── Performance KPI Strip ───────────────────────────────────────── */
+    /* ─── KPI Strip ───────────────────────────────────────────────── */
     .kpi-strip {
       display: grid;
-      grid-template-columns: repeat(4, 1fr);
+      grid-template-columns: repeat(5, 1fr);
       gap: 12px;
     }
 
     .kpi-card {
-      background-color: var(--color-surface);
+      background: var(--color-surface);
       border: 1px solid var(--color-border);
       border-radius: var(--radius-lg);
-      padding: 16px;
+      padding: 14px 16px;
       display: flex;
       flex-direction: column;
-      justify-content: space-between;
-      min-height: 84px;
+      gap: 6px;
+      transition: border-color 180ms var(--ease-out);
+    }
+
+    @media (hover: hover) and (pointer: fine) {
+      .kpi-card:hover { border-color: var(--color-border-hi); }
     }
 
     .kpi-title {
       font-size: 10px;
-      font-weight: 600;
+      font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0.08em;
-      color: var(--color-text-muted);
-      margin-bottom: 4px;
+      color: var(--color-muted);
     }
 
     .kpi-value-row {
       display: flex;
       align-items: baseline;
       justify-content: space-between;
+      gap: 8px;
     }
 
     .kpi-value {
       font-family: var(--font-mono);
-      font-size: 24px;
+      font-size: 22px;
       font-weight: 700;
-      line-height: 1.1;
+      line-height: 1;
+      letter-spacing: -0.02em;
       color: var(--color-text);
+      transition: color 200ms var(--ease-out);
     }
 
     .kpi-trend {
-      font-size: 11px;
+      font-size: 10px;
+      font-weight: 600;
       display: flex;
       align-items: center;
       gap: 2px;
-      font-weight: 600;
     }
 
-    .trend-up { color: var(--color-error); }
-    .trend-down { color: var(--color-success); }
-    .trend-neutral { color: var(--color-text-muted); }
+    .trend-up      { color: var(--color-error); }
+    .trend-down    { color: var(--color-success); }
+    .trend-neutral { color: var(--color-muted); }
 
-    /* ─── Chart & Panel Layout ────────────────────────────────────────── */
-    .chart-panel-row {
+    /* ─── Chart / Anomaly Row ─────────────────────────────────────── */
+    .chart-row {
       display: grid;
       grid-template-columns: 65fr 35fr;
-      gap: 16px;
-      height: 360px;      /* fixed row height — prevents unbounded growth */
-      min-height: 0;      /* grid containment: children cannot blow out the row */
-      align-items: start; /* don't stretch children to tallest sibling */
+      gap: 14px;
+      height: 340px;
+      min-height: 0;
+      align-items: start;
     }
+
     .panel-card {
-      background-color: var(--color-surface);
+      background: var(--color-surface);
       border: 1px solid var(--color-border);
       border-radius: var(--radius-lg);
-      padding: 16px;
+      padding: 14px 16px;
       display: flex;
       flex-direction: column;
-      position: relative;
-      height: 360px;   /* explicit height so Chart.js has a real parent to size against */
-      min-height: 0;   /* grid child containment */
+      height: 340px;
+      min-height: 0;
       overflow: hidden;
     }
 
-    .panel-title-container {
+    .panel-header {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      margin-bottom: 16px;
+      margin-bottom: 14px;
+      flex-shrink: 0;
     }
 
     .panel-title {
-      font-size: 12px;
-      font-weight: 600;
+      font-size: 11px;
+      font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0.08em;
-      color: var(--color-text);
+      color: var(--color-muted);
     }
 
-    .chart-wrapper {
+    .chart-wrap {
       position: relative;
-      flex: 1;           /* fills remaining height inside .panel-card after the title row */
-      min-height: 0;     /* prevents flex child from ignoring parent height */
+      flex: 1;
+      min-height: 0;
       width: 100%;
       overflow: hidden;
     }
 
-    /* Frozen state chart overlay */
-    .chart-frozen-overlay {
+    /* Frozen overlay — fades in, doesn't pop */
+    .chart-overlay {
       display: none;
       position: absolute;
       inset: 0;
-      background-color: rgba(14, 14, 12, 0.85);
+      background: color-mix(in oklab, var(--color-bg) 85%, transparent);
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
       z-index: 10;
       align-items: center;
       justify-content: center;
       border-radius: var(--radius-md);
-      backdrop-filter: blur(2px);
     }
 
-    .chart-frozen-badge {
-      background-color: rgba(79, 96, 96, 0.15);
-      border: 1px solid var(--color-paused);
-      color: var(--color-text);
+    .chart-overlay.visible { display: flex; }
+
+    .chart-overlay-badge {
+      background: var(--color-surface-2);
+      border: 1px solid var(--color-border-hi);
+      color: var(--color-muted);
       font-family: var(--font-mono);
-      font-size: 11px;
+      font-size: 10px;
       font-weight: 700;
-      letter-spacing: 0.05em;
+      letter-spacing: 0.06em;
       padding: 8px 16px;
       border-radius: var(--radius-sm);
       display: flex;
@@ -612,242 +572,247 @@
       gap: 8px;
     }
 
-    /* ─── Anomaly History (Sentry Cards) ──────────────────────────────── */
-    .anomaly-history-wrapper {
+    /* ─── Anomaly History Cards ────────────────────────────────────── */
+    .anomaly-list {
       display: flex;
       flex-direction: column;
-      gap: 8px;
+      gap: 6px;
       overflow-y: auto;
       overflow-x: hidden;
       flex: 1;
-      min-height: 0;     /* lets the flex child honour parent's fixed height */
-      padding-right: 4px;
+      min-height: 0;
+      padding-right: 3px;
       scrollbar-width: thin;
       scrollbar-color: var(--color-border) transparent;
     }
 
-    .anomaly-history-wrapper:empty::after {
-      content: "No anomalies detected.";
-      color: var(--color-text-muted);
+    .anomaly-list:empty::after {
+      content: 'No anomalies detected.';
+      color: var(--color-muted);
       font-size: 12px;
       text-align: center;
       padding-top: 48px;
+      display: block;
     }
 
+    /* Anomaly cards slide in from scale(0.96) — not 0 */
     .anomaly-card {
-      background-color: var(--color-sentry-bg);
-      border: 1px solid var(--color-sentry-ink);
+      background: var(--color-sentry-bg);
+      border: 1px solid color-mix(in oklab, var(--color-border) 60%, transparent);
       color: var(--color-sentry-text);
-      font-family: var(--font-sentry-display);
       border-radius: var(--radius-md);
-      padding: 10px 12px;
+      padding: 9px 11px;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 12px;
+      gap: 10px;
       cursor: pointer;
       user-select: none;
-      transition: background-color var(--transition-fast);
+      /* Entry — use CSS transition, not keyframes, for rapid additions */
+      transition: background 160ms var(--ease-out);
+
+      /* Entry animation — enters from scale(0.96)+opacity, never from scale(0) */
+      animation: anomalyIn 220ms var(--ease-out) both;
     }
 
-    .anomaly-card:hover {
-      background-color: var(--color-sentry-ink);
+    @keyframes anomalyIn {
+      from { opacity: 0; transform: translateY(-4px) scale(0.97); }
+      to   { opacity: 1; transform: translateY(0) scale(1); }
     }
 
-    .anomaly-card-left {
+    @media (hover: hover) and (pointer: fine) {
+      .anomaly-card:hover { background: var(--color-sentry-ink); }
+    }
+
+    .anomaly-left {
       display: flex;
       align-items: center;
-      gap: 12px;
+      gap: 10px;
       flex: 1;
       min-width: 0;
     }
 
-    .anomaly-icon-dot {
-      width: 8px;
-      height: 8px;
+    .anomaly-dot {
+      width: 7px;
+      height: 7px;
       border-radius: 50%;
       flex-shrink: 0;
     }
 
-    .anomaly-meta {
-      display: flex;
-      flex-direction: column;
-      min-width: 0;
-    }
+    .anomaly-meta { display: flex; flex-direction: column; min-width: 0; }
 
     .anomaly-title-row {
       display: flex;
       align-items: baseline;
-      gap: 8px;
+      gap: 7px;
     }
 
-    .anomaly-class-name {
-      font-weight: 600;
-      text-transform: uppercase;
-      font-size: 12px;
-    }
-
-    .anomaly-probability {
-      font-family: var(--font-mono);
-      font-size: 11px;
+    .anomaly-class {
       font-weight: 700;
+      text-transform: uppercase;
+      font-size: 11px;
+      letter-spacing: 0.04em;
     }
 
-    .anomaly-subtext {
+    .anomaly-prob {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 600;
+    }
+
+    .anomaly-sub {
       font-size: 10px;
       color: var(--color-sentry-muted);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
-      margin-top: 2px;
+      margin-top: 1px;
     }
 
-    .anomaly-card-right {
+    .anomaly-right {
       display: flex;
       align-items: center;
-      gap: 16px;
+      gap: 12px;
       flex-shrink: 0;
     }
 
-    .anomaly-sparkline-svg {
-      width: 72px;
-      height: 18px;
-      stroke-width: 1.5px;
-      fill: none;
-    }
+    .anomaly-sparkline { width: 64px; height: 16px; stroke-width: 1.5; fill: none; }
 
-    .anomaly-temp-badge {
-      font-family: var(--font-sentry-mono);
-      background-color: var(--color-sentry-ink);
-      color: var(--color-sentry-text);
-      font-size: 11px;
+    .anomaly-temp {
+      font-family: var(--font-mono);
+      background: var(--color-sentry-ink);
+      font-size: 10px;
       font-weight: 600;
       padding: 2px 6px;
       border-radius: var(--radius-sm);
     }
 
-    /* ─── Telemetry Event Log ─────────────────────────────────────────── */
-    .log-panel-card {
-      background-color: var(--color-surface);
+    /* ─── Telemetry Log ───────────────────────────────────────────── */
+    .log-card {
+      background: var(--color-surface);
       border: 1px solid var(--color-border);
       border-radius: var(--radius-lg);
-      padding: 16px;
+      padding: 14px 16px;
       display: flex;
       flex-direction: column;
-      height: 280px;
-      position: relative;
+      height: 270px;
     }
 
-    .log-header-row {
+    .log-header {
       display: grid;
-      grid-template-columns: 120px 80px 100px 100px 1fr;
+      grid-template-columns: 120px 72px 90px 100px 1fr;
       gap: 12px;
       padding-bottom: 8px;
       border-bottom: 1px solid var(--color-border);
-      margin-bottom: 8px;
-      font-size: 10px;
-      font-weight: 600;
+      margin-bottom: 6px;
+      font-size: 9px;
+      font-weight: 700;
       text-transform: uppercase;
-      letter-spacing: 0.05em;
-      color: var(--color-text-muted);
-      position: sticky;
-      top: 0;
-      background-color: var(--color-surface);
-      z-index: 1;
+      letter-spacing: 0.07em;
+      color: var(--color-muted);
+      flex-shrink: 0;
     }
 
-    .log-rows-container {
+    .log-rows {
       overflow-y: auto;
       flex: 1;
       display: flex;
       flex-direction: column;
-      gap: 4px;
+      gap: 3px;
     }
 
     .log-row {
       display: grid;
-      grid-template-columns: 120px 80px 100px 100px 1fr;
+      grid-template-columns: 120px 72px 90px 100px 1fr;
       gap: 12px;
-      padding: 6px 12px;
-      background-color: var(--color-surface-2);
-      border: 1px solid var(--color-border);
+      padding: 5px 10px;
+      background: var(--color-surface-2);
+      border: 1px solid transparent;
       border-radius: var(--radius-sm);
       font-family: var(--font-mono);
       font-size: 11px;
       align-items: center;
-      position: relative;
+      /* Use CSS transition — interruptible when rows arrive rapidly */
+      transition: border-color 150ms var(--ease-out);
     }
 
-    .log-row.fault {
-      background-color: rgba(196, 95, 160, 0.04);
-      border-left: 2px solid var(--color-error);
-    }
-    .log-row.fault-imbalance {
-      background-color: rgba(224, 123, 58, 0.04);
-      border-left: 2px solid var(--color-imbalance);
-    }
-    .log-row.fault-looseness {
-      background-color: rgba(232, 160, 48, 0.04);
-      border-left: 2px solid var(--color-looseness);
+    /* Stagger log row entrances */
+    .log-row { animation: logRowIn 200ms var(--ease-out) both; }
+
+    @keyframes logRowIn {
+      from { opacity: 0; transform: translateX(-4px); }
+      to   { opacity: 1; transform: translateX(0); }
     }
 
-    .log-time { color: var(--color-text-muted); }
-    .log-stage { color: var(--color-primary); font-weight: 600; }
-    
-    .log-label {
-      text-transform: uppercase;
-      font-weight: 600;
-      font-size: 10px;
-    }
+    .log-row.fault          { border-left: 2px solid var(--color-error);     background: color-mix(in oklab, var(--color-error)     5%, var(--color-surface-2)); }
+    .log-row.fault-imbalance{ border-left: 2px solid var(--color-imbalance); background: color-mix(in oklab, var(--color-imbalance) 5%, var(--color-surface-2)); }
+    .log-row.fault-looseness{ border-left: 2px solid var(--color-looseness); background: color-mix(in oklab, var(--color-looseness) 5%, var(--color-surface-2)); }
 
-    .log-prob { font-weight: 600; }
-    .log-latency { color: var(--color-text-muted); }
+    .log-time    { color: var(--color-muted); }
+    .log-stage   { color: var(--color-primary); font-weight: 600; }
+    .log-label   { font-weight: 700; font-size: 9px; text-transform: uppercase; letter-spacing: 0.05em; }
+    .log-prob    { font-weight: 600; }
+    .log-latency { color: var(--color-muted); }
 
-    /* ─── Top Slid-in Alert Banner ────────────────────────────────────── */
+    /* ─── Alert Banner (Toast) ────────────────────────────────────── */
+    /*
+     * Enter: translateY(-100%) → 0 with ease-out (fast start = instant feedback)
+     * Exit:  translateY(0) → -100% with faster ease-in-out (asymmetric timing)
+     * Spatial consistency: always exits same direction it entered
+     */
     .alert-banner {
       position: fixed;
-      top: -64px;
+      top: 0;
       left: 50%;
-      transform: translateX(-50%);
-      background-color: var(--color-surface-2);
-      border: 1px solid var(--color-error);
+      /* Translate the element's own width so percentages are self-relative */
+      transform: translateX(-50%) translateY(-110%);
+      background: var(--color-surface-2);
+      border: 1px solid color-mix(in oklab, var(--color-error) 35%, transparent);
       border-radius: var(--radius-md);
-      padding: 8px 16px;
+      padding: 9px 16px;
       display: flex;
       align-items: center;
       gap: 12px;
-      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.8);
+      box-shadow: 0 8px 32px rgba(0,0,0,0.6), 0 0 0 1px rgba(239,68,68,0.1);
       z-index: 1000;
-      transition: top 300ms cubic-bezier(0.16, 1, 0.3, 1);
       width: 90%;
       max-width: 440px;
+      /* Enter fast (ease-out) — exit fast too but slightly slower */
+      transition: transform 260ms var(--ease-out);
     }
 
+    /* Visible: slides to natural position */
     .alert-banner.visible {
-      top: 16px;
+      transform: translateX(-50%) translateY(calc(52px + 12px));
     }
 
-    .alert-banner-indicator {
-      width: 8px;
-      height: 8px;
+    /* Dismissing: slides back up faster than it entered */
+    .alert-banner.dismissing {
+      transition: transform 180ms var(--ease-in-out);
+      transform: translateX(-50%) translateY(-110%);
+    }
+
+    .alert-dot {
+      width: 7px;
+      height: 7px;
       border-radius: 50%;
-      background-color: var(--color-error);
+      background: var(--color-error);
       flex-shrink: 0;
+      box-shadow: 0 0 6px var(--color-error);
     }
 
-    .alert-banner-text {
+    .alert-text {
       flex: 1;
       font-size: 12px;
       font-weight: 500;
     }
 
-    .alert-banner-text strong {
-      text-transform: uppercase;
-    }
+    .alert-text strong { text-transform: uppercase; font-weight: 700; }
 
-    .alert-banner-btn {
-      background-color: var(--color-surface-2);
-      border: 1px solid var(--color-border);
+    /* Alert dismiss button — must feel pressable */
+    .alert-btn {
+      background: var(--color-surface-3);
+      border: 1px solid var(--color-border-hi);
       padding: 4px 12px;
       border-radius: var(--radius-sm);
       font-size: 11px;
@@ -856,21 +821,29 @@
       min-height: 28px;
       display: flex;
       align-items: center;
-      transition: background-color var(--transition-fast);
+      /* Specific properties only */
+      transition: background 140ms var(--ease-out), transform 100ms var(--ease-out);
     }
 
-    .alert-banner-btn:hover {
-      background-color: var(--color-border);
+    @media (hover: hover) and (pointer: fine) {
+      .alert-btn:hover { background: var(--color-border-hi); }
     }
 
-    /* ─── Bottom Reconnect Banner ─────────────────────────────────────── */
+    /* Press feedback — instant, sub-100ms */
+    .alert-btn:active { transform: scale(0.97); }
+
+    /* ─── Reconnect Banner (bottom toast) ────────────────────────── */
+    /*
+     * Exits upward (translateY(100%)) from its natural position at the bottom
+     * Same direction it entered from — spatial consistency
+     */
     .reconnect-banner {
       position: fixed;
-      bottom: -48px;
+      bottom: 0;
       left: 50%;
-      transform: translateX(-50%);
-      background-color: var(--color-surface-2);
-      border: 1px solid var(--color-warning);
+      transform: translateX(-50%) translateY(calc(100% + 16px));
+      background: var(--color-surface-2);
+      border: 1px solid color-mix(in oklab, var(--color-warning) 30%, transparent);
       padding: 6px 16px;
       border-radius: 999px;
       display: flex;
@@ -879,33 +852,31 @@
       font-size: 12px;
       font-weight: 600;
       color: var(--color-warning);
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.7);
+      box-shadow: 0 4px 16px rgba(0,0,0,0.5);
       z-index: 999;
-      transition: bottom 300ms cubic-bezier(0.16, 1, 0.3, 1);
+      /* Enter: ease-out. Exit: faster ease-in-out */
+      transition: transform 260ms var(--ease-out);
     }
 
     .reconnect-banner.visible {
-      bottom: 16px;
+      transform: translateX(-50%) translateY(calc(-16px));
     }
 
+    /* Faster spinner = app feels faster (perceived performance) */
     .spinner {
-      width: 12px;
-      height: 12px;
-      border: 2px solid rgba(224, 123, 58, 0.25);
-      border-top: 2px solid var(--color-warning);
+      width: 11px;
+      height: 11px;
+      border: 1.5px solid color-mix(in oklab, var(--color-warning) 25%, transparent);
+      border-top-color: var(--color-warning);
       border-radius: 50%;
-      animation: spin 1s linear infinite;
+      animation: spin 700ms linear infinite;
     }
 
-    @keyframes spin {
-      to { transform: rotate(360deg); }
-    }
+    @keyframes spin { to { transform: rotate(360deg); } }
 
-    /* ─── Responsive & Mobile Styles ─────────────────────────────────── */
+    /* ─── Responsive ──────────────────────────────────────────────── */
     @media (max-width: 768px) {
-      body {
-        grid-template-rows: 48px auto 1fr;
-      }
+      body { grid-template-rows: 52px auto 1fr; }
 
       .layout-wrapper {
         grid-template-columns: 1fr;
@@ -917,190 +888,189 @@
       aside {
         border-right: none;
         border-bottom: 1px solid var(--color-border);
-        position: static;
         flex-direction: row;
-        gap: 16px;
         padding: 8px 12px;
       }
 
-      nav {
-        flex: 1;
-      }
-
-      nav ul {
-        flex-direction: row;
-        overflow-x: auto;
-        padding-bottom: 4px;
-      }
-
-      .nav-item {
-        flex-shrink: 0;
-        padding: 6px 10px;
-      }
-
-      .sidebar-fault-summary {
-        display: none; /* Hide fault summaries in mobile nav bar */
-      }
-
-      main {
-        padding: 12px;
-        overflow-y: visible;
-      }
-
-      .kpi-strip {
-        grid-template-columns: repeat(2, 1fr);
-      }
-
-      .chart-panel-row {
-        grid-template-columns: 1fr;
-      }
+      nav { flex: 1; }
+      nav ul { flex-direction: row; overflow-x: auto; padding-bottom: 2px; }
+      .nav-item { flex-shrink: 0; }
+      .fault-summary { display: none; }
+      main { padding: 12px; overflow-y: visible; }
+      .kpi-strip { grid-template-columns: repeat(2, 1fr); }
+      .chart-row { grid-template-columns: 1fr; height: auto; }
+      .panel-card { height: 300px; }
+      .log-card { height: 240px; }
     }
-    .chip-lime-keyword {
-      background-color: var(--color-sentry-lime);
-      color: var(--color-sentry-ink);
-      padding: 0 12px;
-      border-radius: var(--radius-sm);
-      font-weight: 700;
-      text-transform: uppercase;
-    }
-    .chip-lime-keyword {
-      background-color: var(--color-sentry-lime);
-      color: var(--color-sentry-ink);
-      padding: 0 12px;
-      border-radius: var(--radius-sm);
-      font-weight: 700;
-      text-transform: uppercase;
+
+    /* ─── Reduced Motion ──────────────────────────────────────────── */
+    @media (prefers-reduced-motion: reduce) {
+      .anomaly-card { animation: none; }
+      .log-row { animation: none; }
+      .pipe-line-flow { animation: none; }
+      .spinner { animation: spin 1.5s linear infinite; }
+      .alert-banner,
+      .reconnect-banner { transition-duration: 0ms; }
     }
   </style>
 </head>
 <body>
 
-  <!-- Top Alert Banner for Anomaly Notifications -->
-  <div id="anomaly-alert-banner" class="alert-banner" role="alert">
-    <div class="alert-banner-indicator"></div>
-    <div class="alert-banner-text" id="alert-banner-content">
+  <!-- ── Alert Banner ─────────────────────────────────────────── -->
+  <div id="alert-banner" class="alert-banner" role="alert" aria-live="assertive">
+    <div class="alert-dot"></div>
+    <div class="alert-text" id="alert-banner-text">
       Anomaly detected: <strong>normal</strong>
     </div>
-    <button class="alert-banner-btn" id="alert-banner-view-btn">View</button>
+    <button class="alert-btn" id="alert-view-btn">View</button>
   </div>
 
-  <!-- Bottom Reconnect Banner -->
+  <!-- ── Reconnect Banner ──────────────────────────────────────── -->
   <div id="reconnect-banner" class="reconnect-banner">
     <div class="spinner"></div>
-    <span>Reconnecting to EdgeGuard...</span>
+    <span>Reconnecting to EdgeGuard…</span>
   </div>
 
-  <!-- Header -->
+  <!-- ── Header ───────────────────────────────────────────────── -->
   <header>
     <div class="brand-section">
-      <svg width="24" height="24" viewBox="0 0 28 28" fill="none" aria-label="EdgeGuard logo" style="margin-right: -4px;">
-        <rect x="2" y="2" width="24" height="24" rx="6" fill="currentColor" opacity=".15"/>
-        <path d="M6 14 L12 8 L18 14 L12 20 Z" stroke="currentColor" stroke-width="1.8" fill="none"/>
-        <circle cx="14" cy="14" r="2" fill="currentColor"/>
-        <path d="M20 10 L22 8 M20 18 L22 20" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-      </svg>
+      <div class="logo-mark">
+        <img src="logo.png" alt="EdgeGuard logo">
+      </div>
       <h1>EdgeGuard</h1>
     </div>
-    
-    <div class="status-badge-container">
+
+    <div class="header-right">
       <span id="header-status-badge" class="pipeline-status running">Running</span>
-      
-      <!-- Optimistic Toggle Switch -->
+
       <div class="mode-toggle">
-        <span class="mode-toggle-label" id="mode-label-low">LP</span>
-        <label class="switch">
-          <input type="checkbox" id="mode-toggle-checkbox" checked onchange="toggleInferenceMode()">
-          <span class="slider"></span>
-        </label>
-        <span class="mode-toggle-label active" id="mode-label-high">HP</span>
+        <span class="mode-label" id="mode-lp">LP</span>
+        <div class="switch-wrap">
+          <label class="switch" aria-label="Toggle inference mode">
+            <input type="checkbox" id="mode-toggle" checked onchange="toggleInferenceMode()">
+            <span class="slider"></span>
+          </label>
+        </div>
+        <span class="mode-label active" id="mode-hp">HP</span>
       </div>
-      
-      <div class="ws-connection">
-        <div id="conn-status-dot" class="connection-dot"></div>
+
+      <div class="ws-row">
+        <div id="conn-dot" class="conn-dot"></div>
       </div>
     </div>
   </header>
 
-  <!-- Shell Layout Wrapper -->
+  <!-- ── Layout ───────────────────────────────────────────────── -->
   <div class="layout-wrapper">
+
     <!-- Sidebar -->
     <aside>
       <nav>
-        <p class="sidebar-section-title">Pipeline Stages</p>
+        <p class="sidebar-label">Pipeline Stages</p>
         <ul>
           <li class="nav-item">
-            <span class="nav-item-left"><i data-lucide="log-in" style="width:14px;height:14px;color:var(--color-primary);"></i> Ingest</span>
+            <span class="nav-item-left">
+              <i data-lucide="log-in" style="width:13px;height:13px;color:var(--color-primary);"></i>
+              Ingest
+            </span>
             <div id="stage-dot-ingest" class="stage-dot"></div>
           </li>
           <li class="nav-item">
-            <span class="nav-item-left"><i data-lucide="layers" style="width:14px;height:14px;color:var(--color-primary);"></i> Buffer</span>
+            <span class="nav-item-left">
+              <i data-lucide="layers" style="width:13px;height:13px;color:var(--color-primary);"></i>
+              Buffer
+            </span>
             <div id="stage-dot-buffer" class="stage-dot"></div>
           </li>
           <li class="nav-item">
-            <span class="nav-item-left"><i data-lucide="cpu" style="width:14px;height:14px;color:var(--color-primary);"></i> Inference</span>
+            <span class="nav-item-left">
+              <i data-lucide="cpu" style="width:13px;height:13px;color:var(--color-primary);"></i>
+              Inference
+            </span>
             <div id="stage-dot-inference" class="stage-dot"></div>
           </li>
           <li class="nav-item">
-            <span class="nav-item-left"><i data-lucide="radio" style="width:14px;height:14px;color:var(--color-primary);"></i> Broadcast</span>
+            <span class="nav-item-left">
+              <i data-lucide="radio" style="width:13px;height:13px;color:var(--color-primary);"></i>
+              Broadcast
+            </span>
             <div id="stage-dot-broadcast" class="stage-dot"></div>
           </li>
         </ul>
       </nav>
 
-      <div class="sidebar-fault-summary">
-        <p class="sidebar-section-title">Fault Summary</p>
-        <div class="fault-count-row">
-          <span class="fault-count-label"><div class="fault-indicator imbalance"></div> Imbalance</span>
-          <span class="fault-count-badge" id="summary-count-imbalance" style="color:var(--color-text-faint)">0</span>
+      <div class="fault-summary">
+        <p class="sidebar-label">Fault Summary</p>
+        <div class="fault-row">
+          <span class="fault-row-label">
+            <div class="fault-dot imbalance"></div>
+            Imbalance
+          </span>
+          <span class="fault-count" id="count-imbalance">0</span>
         </div>
-        <div class="fault-count-row">
-          <span class="fault-count-label"><div class="fault-indicator bearing"></div> Bearing</span>
-          <span class="fault-count-badge" id="summary-count-bearing" style="color:var(--color-text-faint)">0</span>
+        <div class="fault-row">
+          <span class="fault-row-label">
+            <div class="fault-dot bearing"></div>
+            Bearing
+          </span>
+          <span class="fault-count" id="count-bearing">0</span>
         </div>
-        <div class="fault-count-row">
-          <span class="fault-count-label"><div class="fault-indicator looseness"></div> Looseness</span>
-          <span class="fault-count-badge" id="summary-count-looseness" style="color:var(--color-text-faint)">0</span>
+        <div class="fault-row">
+          <span class="fault-row-label">
+            <div class="fault-dot looseness"></div>
+            Looseness
+          </span>
+          <span class="fault-count" id="count-looseness">0</span>
         </div>
       </div>
     </aside>
 
-    <!-- Main Content Panel -->
-    <main id="main-scroll-container">
-      
-      <!-- Horizontal Flow Strip -->
-      <section class="pipeline-strip-card" aria-label="Pipeline Flow">
-        <div class="pipeline-flow-container">
-          <svg class="pipeline-connector-svg">
-            <path id="pipeline-path" d="M 30,12 L 1370,12" class="pipeline-line" />
-            <path d="M 30,12 L 1370,12" id="pipeline-flow-line" class="pipeline-line-flow" />
+    <!-- Main Content -->
+    <main id="main-scroll">
+
+      <!-- Pipeline Flow Strip -->
+      <section class="pipeline-card" aria-label="Pipeline flow">
+        <div class="pipeline-flow" id="pipeline-flow-container">
+          <svg class="pipeline-connector" id="pipeline-svg">
+            <path id="pipe-line" d="M 30,10 L 1370,10" class="pipe-line"/>
+            <path id="pipe-flow" d="M 30,10 L 1370,10" class="pipe-line-flow"/>
           </svg>
-          
           <div class="pipeline-node">
-            <div class="pipeline-node-icon active" id="flow-icon-ingest"><div style="width:8px;height:8px;border-radius:50%;background-color:currentColor;"></div></div>
+            <div class="pipeline-node-icon active" id="flow-ingest">
+              <div style="width:7px;height:7px;border-radius:50%;background:var(--color-primary);"></div>
+            </div>
             <span class="pipeline-node-label">Ingest</span>
           </div>
           <div class="pipeline-node">
-            <div class="pipeline-node-icon active" id="flow-icon-buffer"><div style="width:8px;height:8px;border-radius:50%;background-color:currentColor;"></div></div>
+            <div class="pipeline-node-icon active" id="flow-buffer">
+              <div style="width:7px;height:7px;border-radius:50%;background:var(--color-primary);"></div>
+            </div>
             <span class="pipeline-node-label">Buffer</span>
           </div>
           <div class="pipeline-node">
-            <div class="pipeline-node-icon active" id="flow-icon-inference"><div style="width:8px;height:8px;border-radius:50%;background-color:currentColor;"></div></div>
+            <div class="pipeline-node-icon active" id="flow-inference">
+              <div style="width:7px;height:7px;border-radius:50%;background:var(--color-primary);"></div>
+            </div>
             <span class="pipeline-node-label">Inference</span>
           </div>
           <div class="pipeline-node">
-            <div class="pipeline-node-icon active" id="flow-icon-broadcast"><div style="width:8px;height:8px;border-radius:50%;background-color:currentColor;"></div></div>
+            <div class="pipeline-node-icon active" id="flow-broadcast">
+              <div style="width:7px;height:7px;border-radius:50%;background:var(--color-primary);"></div>
+            </div>
             <span class="pipeline-node-label">Broadcast</span>
           </div>
         </div>
       </section>
 
-      <!-- KPI Performance Strip -->
-      <section class="kpi-strip" aria-label="Performance Indicators">
+      <!-- KPI Strip -->
+      <section class="kpi-strip" aria-label="Performance KPIs">
         <div class="kpi-card">
           <span class="kpi-title">Total Cycles</span>
           <div class="kpi-value-row">
-            <span class="kpi-value" id="kpi-total-cycles">0</span>
-            <span class="kpi-trend trend-neutral" id="kpi-cycles-trend"><i data-lucide="activity" style="width:12px;height:12px;"></i></span>
+            <span class="kpi-value" id="kpi-cycles">0</span>
+            <span class="kpi-trend trend-neutral" id="kpi-cycles-trend">
+              <i data-lucide="activity" style="width:11px;height:11px;"></i>
+            </span>
           </div>
         </div>
         <div class="kpi-card">
@@ -1113,184 +1083,148 @@
         <div class="kpi-card">
           <span class="kpi-title">Mean Latency</span>
           <div class="kpi-value-row">
-            <span class="kpi-value" id="kpi-mean-latency">—</span>
+            <span class="kpi-value" id="kpi-latency">—</span>
             <span class="kpi-trend trend-neutral" id="kpi-latency-trend">ms</span>
           </div>
         </div>
         <div class="kpi-card">
           <span class="kpi-title">Board Temp</span>
           <div class="kpi-value-row">
-            <span class="kpi-value" id="kpi-board-temp">—</span>
+            <span class="kpi-value" id="kpi-temp">—</span>
             <span class="kpi-trend trend-neutral" id="kpi-temp-trend">—</span>
+          </div>
+        </div>
+        <div class="kpi-card">
+          <span class="kpi-title">Energy Waste</span>
+          <div class="kpi-value-row">
+            <span class="kpi-value" id="kpi-energy">—</span>
+            <span class="kpi-trend trend-neutral" id="kpi-energy-trend">
+              <i data-lucide="zap" style="width:11px;height:11px;"></i>
+            </span>
           </div>
         </div>
       </section>
 
-      <!-- Chart and Anomaly Split View -->
-      <div class="chart-panel-row">
-        <!-- Live Line Chart -->
-        <section class="panel-card" aria-label="Real-time Probability Analysis">
-          <div class="panel-title-container">
+      <!-- Chart + Anomaly Row -->
+      <div class="chart-row">
+        <!-- Live Chart -->
+        <section class="panel-card" aria-label="Real-time probability chart">
+          <div class="panel-header">
             <span class="panel-title">Fault Classification Probability</span>
           </div>
-          
-          <div class="chart-wrapper">
-            <!-- Low Power overlay -->
-            <div id="chart-paused-overlay" class="chart-frozen-overlay">
-              <div class="chart-frozen-badge">
-                <i data-lucide="pause-circle" style="width:14px;height:14px;color:var(--color-paused)"></i>
-                COGNITION PAUSED — LOW POWER MODE
+          <div class="chart-wrap">
+            <div id="chart-overlay" class="chart-overlay">
+              <div class="chart-overlay-badge">
+                <i data-lucide="pause-circle" style="width:13px;height:13px;"></i>
+                COGNITION PAUSED — LOW POWER
               </div>
             </div>
-            
-            <canvas id="liveProbabilityChart"></canvas>
+            <canvas id="prob-chart"></canvas>
           </div>
         </section>
 
-        <!-- Anomaly History Panel (Sentry Cards) -->
-        <section class="panel-card" aria-label="Anomaly Logs">
-          <div class="panel-title-container">
+        <!-- Anomaly History -->
+        <section class="panel-card" aria-label="Anomaly history">
+          <div class="panel-header">
             <span class="panel-title">Anomaly History</span>
           </div>
-          <div class="anomaly-history-wrapper" id="anomaly-cards-container"></div>
+          <div class="anomaly-list" id="anomaly-list"></div>
         </section>
       </div>
 
-      <!-- Telemetry Event Log (PipelinePro) -->
-      <section class="log-panel-card" aria-label="System Log">
-        <div class="panel-title-container">
+      <!-- Telemetry Log -->
+      <section class="log-card" aria-label="Inference telemetry log">
+        <div class="panel-header">
           <span class="panel-title">Inference Telemetry Log</span>
         </div>
-        
-        <div class="log-header-row">
+        <div class="log-header">
           <span>Timestamp</span>
           <span>SEQ</span>
           <span>Label</span>
           <span>Imbalance %</span>
           <span>Latency</span>
         </div>
-        
-        <div class="log-rows-container" id="log-rows-container"></div>
+        <div class="log-rows" id="log-rows"></div>
       </section>
 
     </main>
   </div>
 
   <script>
-    // ─── Constants & Parameters ──────────────────────────────────────
-    const ANOMALY_TRIGGER_THRESHOLD = 0.75;
-    const MAX_CHART_FRAMES = 60;
-    const MAX_LOG_ROWS = 200;
-    const MAX_ANOMALY_CARDS = 50;
-    const RECONNECT_INTERVAL_MS = 3000;
-    
-    // In-memory JS variables for State (Constraint: No local/sessionStorage)
+    // ─── Constants ─────────────────────────────────────────────
+    const ANOMALY_THRESHOLD  = 0.75;
+    const MAX_CHART_FRAMES   = 60;
+    const MAX_LOG_ROWS       = 200;
+    const MAX_ANOMALY_CARDS  = 50;
+    const RECONNECT_MS       = 3000;
+    const escapeHTML = (s) => {
+      if (s == null) return '';
+      const d = document.createElement('div');
+      d.textContent = s;
+      return d.innerHTML;
+    };
+
+    // ─── State ─────────────────────────────────────────────────
     const state = {
       connected: false,
       reconnecting: false,
       failed: false,
       failedRetries: 0,
       inferenceMode: 'high_power',
-      
-      // Totals & counters for Sentry KPI strip
+      isToggling: false,
+
       totalCycles: 0,
       faultCycles: 0,
-      
-      // Moving averages
-      latencyHistory: [], // Max length 60
-            imbalanceHistory: [], // Max length 20 (for card sparklines)
-      bearingHistory: [],
-      loosenessHistory: [],
-      tempHistory: [], // Max length 10
-      isToggling: false,
-      
-      // Fault summary counts
-      faultCounts: {
-        imbalance: 0,
-        bearing: 0,
-        looseness: 0
-      },
-      
-      // Log data store
+
+      latencyHistory:    [],
+      imbalanceHistory:  [],
+      bearingHistory:    [],
+      loosenessHistory:  [],
+      tempHistory:       [],
+
+      faultCounts: { imbalance: 0, bearing: 0, looseness: 0 },
       logs: [],
       anomalies: []
     };
 
-    let wsInstance = null;
+    let wsInstance     = null;
     let reconnectTimer = null;
-    let chartInstance = null;
-    let alertBannerTimer = null;
+    let chartInstance  = null;
+    let alertTimer     = null;
+    let watchdogTimer  = null;
 
-    // Adjust width of SVG flow path dynamically on window resize
+    // ─── Pipeline Path Sizing ──────────────────────────────────
     function updatePipelinePath() {
-      const path = document.getElementById('pipeline-path');
-      const flowPath = document.getElementById('pipeline-flow-line');
-      const container = document.querySelector('.pipeline-flow-container');
-      if (path && flowPath && container) {
-        const w = container.clientWidth;
-        path.setAttribute('d', `M 30,12 L ${w - 30},12`);
-        flowPath.setAttribute('d', `M 30,12 L ${w - 30},12`);
-      }
+      const container = document.getElementById('pipeline-flow-container');
+      const pipeLine  = document.getElementById('pipe-line');
+      const pipeFlow  = document.getElementById('pipe-flow');
+      if (!container || !pipeLine) return;
+      const w = container.clientWidth;
+      const d = `M 30,10 L ${w - 30},10`;
+      pipeLine.setAttribute('d', d);
+      pipeFlow.setAttribute('d', d);
     }
-    
-    window.addEventListener('resize', updatePipelinePath);
-    setTimeout(updatePipelinePath, 100);
 
-    // ─── Chart.js Setup ──────────────────────────────────────────────
+    window.addEventListener('resize', updatePipelinePath);
+    setTimeout(updatePipelinePath, 80);
+
+    // ─── Chart Setup ───────────────────────────────────────────
     function initChart() {
-      const ctx = document.getElementById('liveProbabilityChart').getContext('2d');
-      
-      // Initialize with 60 dummy frames matching historical timeline
-      const labels = Array.from({length: MAX_CHART_FRAMES}, (_, i) => {
+      const ctx = document.getElementById('prob-chart').getContext('2d');
+      const labels = Array.from({ length: MAX_CHART_FRAMES }, (_, i) => {
         const offset = -Math.round((MAX_CHART_FRAMES - 1 - i) * 0.25 * 10) / 10;
         return offset === 0 ? 'now' : `${offset}s`;
       });
-      
+
       chartInstance = new Chart(ctx, {
         type: 'line',
         data: {
-          labels: labels,
+          labels,
           datasets: [
-            {
-              label: 'Normal',
-              data: Array(MAX_CHART_FRAMES).fill(null),
-              borderColor: '#6daa45',
-              backgroundColor: 'rgba(109,170,69,0.08)',
-              borderWidth: 1.5,
-              pointRadius: 0,
-              fill: true,
-              tension: 0.2
-            },
-            {
-              label: 'Imbalance',
-              data: Array(MAX_CHART_FRAMES).fill(null),
-              borderColor: '#F59E0B',
-              backgroundColor: 'rgba(224,123,58,0.08)',
-              borderWidth: 2,
-              pointRadius: 0,
-              fill: false,
-              tension: 0.2
-            },
-            {
-              label: 'Bearing',
-              data: Array(MAX_CHART_FRAMES).fill(null),
-              borderColor: '#EF4444',
-              backgroundColor: 'transparent',
-              borderWidth: 1.5,
-              pointRadius: 0,
-              fill: false,
-              tension: 0.2
-            },
-            {
-              label: 'Looseness',
-              data: Array(MAX_CHART_FRAMES).fill(null),
-              borderColor: '#F97316',
-              backgroundColor: 'transparent',
-              borderWidth: 1.5,
-              pointRadius: 0,
-              fill: false,
-              tension: 0.2
-            }
+            { label: 'Normal',    data: Array(MAX_CHART_FRAMES).fill(null), borderColor: '#22c55e', backgroundColor: 'rgba(34,197,94,0.07)', borderWidth: 1.5, pointRadius: 0, fill: true, tension: 0.3 },
+            { label: 'Imbalance', data: Array(MAX_CHART_FRAMES).fill(null), borderColor: '#f59e0b', backgroundColor: 'transparent',            borderWidth: 2,   pointRadius: 0, fill: false, tension: 0.3 },
+            { label: 'Bearing',   data: Array(MAX_CHART_FRAMES).fill(null), borderColor: '#ef4444', backgroundColor: 'transparent',            borderWidth: 1.5, pointRadius: 0, fill: false, tension: 0.3 },
+            { label: 'Looseness', data: Array(MAX_CHART_FRAMES).fill(null), borderColor: '#f97316', backgroundColor: 'transparent',            borderWidth: 1.5, pointRadius: 0, fill: false, tension: 0.3 },
           ]
         },
         options: {
@@ -1300,203 +1234,139 @@
           interaction: { mode: 'index', intersect: false },
           plugins: {
             legend: {
-              display: true,
-              position: 'top',
-              align: 'end',
-              labels: {
-                color: '#6e6d6b',
-                boxWidth: 8,
-                boxHeight: 8,
-                font: { family: 'Inter', size: 10, weight: '600' }
-              }
+              display: true, position: 'top', align: 'end',
+              labels: { color: '#6b7a91', boxWidth: 8, boxHeight: 8, font: { family: 'Inter', size: 10, weight: '600' } }
             },
             tooltip: {
-              backgroundColor: '#1c1b19',
-              borderColor: '#2e2d2b',
+              backgroundColor: '#131920',
+              borderColor: '#1c2535',
               borderWidth: 1,
-              titleColor: '#6e6d6b',
-              bodyColor: '#d4d3d1',
-              callbacks: {
-                label: (ctx) => ` ${ctx.dataset.label}: ${(ctx.raw * 100).toFixed(0)}%`
-              }
+              titleColor: '#6b7a91',
+              bodyColor: '#e2e8f0',
+              callbacks: { label: ctx => ` ${ctx.dataset.label}: ${(ctx.raw * 100).toFixed(0)}%` }
             }
           },
           scales: {
             x: {
               grid: { display: false },
-              ticks: {
-                color: '#6e6d6b',
-                font: { family: 'JetBrains Mono', size: 9 },
-                maxTicksLimit: 8
-              }
+              ticks: { color: '#6b7a91', font: { family: 'JetBrains Mono', size: 9 }, maxTicksLimit: 8 }
             },
             y: {
-              min: 0,
-              max: 1.0,
+              min: 0, max: 1.0,
               border: { dash: [2, 4] },
-              grid: { color: '#1f1f1d' },
-              ticks: {
-                stepSize: 0.25,
-                color: '#6e6d6b',
-                font: { family: 'JetBrains Mono', size: 9 },
-                callback: (v) => (v * 100).toFixed(0) + '%'
-              }
+              grid: { color: '#131920' },
+              ticks: { stepSize: 0.25, color: '#6b7a91', font: { family: 'JetBrains Mono', size: 9 }, callback: v => (v * 100).toFixed(0) + '%' }
             }
           }
         },
         plugins: [{
           id: 'thresholdLine',
-          afterDraw: (chart) => {
-            const {ctx, scales: {y}} = chart;
-            const yVal = y.getPixelForValue(ANOMALY_TRIGGER_THRESHOLD);
+          afterDraw: chart => {
+            const { ctx, scales: { y } } = chart;
+            const yp = y.getPixelForValue(ANOMALY_THRESHOLD);
             ctx.save();
-            ctx.strokeStyle = '#3d3c3a';
+            ctx.strokeStyle = '#263040';
             ctx.lineWidth = 1;
-            ctx.setLineDash([4, 4]);
+            ctx.setLineDash([3, 5]);
             ctx.beginPath();
-            ctx.moveTo(chart.chartArea.left, yVal);
-            ctx.lineTo(chart.chartArea.right, yVal);
+            ctx.moveTo(chart.chartArea.left, yp);
+            ctx.lineTo(chart.chartArea.right, yp);
             ctx.stroke();
-            ctx.fillStyle = '#4f6060';
+            ctx.fillStyle = '#6b7a91';
             ctx.font = '600 9px JetBrains Mono';
-            ctx.fillText('TRIGGER 75%', chart.chartArea.right - 84, yVal - 4);
+            ctx.fillText('TRIGGER 75%', chart.chartArea.right - 80, yp - 4);
             ctx.restore();
           }
         }]
       });
     }
 
-    // ─── WebSocket Connection & Management ────────────────────────────
+    // ─── WebSocket ─────────────────────────────────────────────
     function connectWS() {
-      // Connect to the local server ws route
-      const wsUrl = `ws://${window.location.host}/ws`;
-      
-      updateConnectionDot('reconnecting');
+      const url = `ws://${window.location.host}/ws`;
+      setConnDot('reconnecting');
       showReconnectBanner(true);
-      
-      wsInstance = new WebSocket(wsUrl);
-      
+
+      wsInstance = new WebSocket(url);
+
       wsInstance.onopen = () => {
-        state.connected = true;
-        state.reconnecting = false;
-        state.failed = false;
-        state.failedRetries = 0;
-        
-        updateConnectionDot('connected');
+        state.connected      = true;
+        state.reconnecting   = false;
+        state.failed         = false;
+        state.failedRetries  = 0;
+        setConnDot('connected');
         showReconnectBanner(false);
-        setStageHealth('broadcast', 'green');
+        setStage('broadcast', 'green');
       };
-      
-      wsInstance.onmessage = (event) => {
-        try {
-          const frame = JSON.parse(event.data);
-          processTelemetryFrame(frame);
-        } catch (err) {
-          console.error("Error parsing telemetry frame:", err);
-        }
+
+      wsInstance.onmessage = ({ data }) => {
+        try { processTelemetry(JSON.parse(data)); }
+        catch (e) { console.error('Bad WS payload', e); }
       };
-      
+
       wsInstance.onclose = () => {
         state.connected = false;
-        setStageHealth('broadcast', 'red');
-        setStageHealth('ingest', 'paused');
-        setStageHealth('buffer', 'paused');
-        setStageHealth('inference', 'paused');
-        
+        setStage('broadcast', 'red');
+        setStage('ingest', 'paused');
+        setStage('buffer', 'paused');
+        setStage('inference', 'paused');
+
         if (!state.failed) {
           state.failedRetries++;
-          if (state.failedRetries > 5) {
-            state.failed = true;
-            updateConnectionDot('failed');
-          } else {
-            updateConnectionDot('reconnecting');
-          }
+          if (state.failedRetries > 5) { state.failed = true; setConnDot('failed'); }
+          else setConnDot('reconnecting');
           showReconnectBanner(true);
         }
-        
+
         clearTimeout(reconnectTimer);
-        reconnectTimer = setTimeout(connectWS, RECONNECT_INTERVAL_MS);
+        reconnectTimer = setTimeout(connectWS, RECONNECT_MS);
       };
-      
-      wsInstance.onerror = () => {
-        setStageHealth('broadcast', 'red');
-      };
+
+      wsInstance.onerror = () => setStage('broadcast', 'red');
     }
 
-    function updateConnectionDot(status) {
-      const dot = document.getElementById('conn-status-dot');
+    // ─── Connection UI helpers ──────────────────────────────────
+    function setConnDot(status) {
+      const dot = document.getElementById('conn-dot');
       if (!dot) return;
-      dot.className = 'connection-dot';
-      
-      if (status === 'connected') {
-        dot.style.backgroundColor = 'var(--color-success)';
-        dot.style.boxShadow = '0 0 8px var(--color-success)';
-      } else if (status === 'reconnecting') {
-        dot.style.backgroundColor = 'var(--color-warning)';
-        dot.style.boxShadow = '0 0 8px var(--color-warning)';
-      } else if (status === 'failed') {
-        dot.style.backgroundColor = 'var(--color-error)';
-        dot.style.boxShadow = '0 0 8px var(--color-error)';
-      }
+      dot.className = `conn-dot ${status}`;
     }
 
-    function showReconnectBanner(visible) {
-      const banner = document.getElementById('reconnect-banner');
-      if (!banner) return;
-      if (visible) {
-        banner.classList.add('visible');
-      } else {
-        banner.classList.remove('visible');
-      }
+    function showReconnectBanner(show) {
+      const el = document.getElementById('reconnect-banner');
+      if (!el) return;
+      if (show) el.classList.add('visible');
+      else el.classList.remove('visible');
     }
 
-    // stage dots handler
-    function setStageHealth(stage, health) {
-      const dot = document.getElementById(`stage-dot-${stage}`);
-      if (dot) {
-        dot.className = `stage-dot ${health}`;
-      }
+    function setStage(name, health) {
+      const dot = document.getElementById(`stage-dot-${name}`);
+      if (dot) dot.className = `stage-dot ${health}`;
     }
 
-    // ─── Optimistic Mode Switch Handler ──────────────────────────────────
+    // ─── Mode Toggle ───────────────────────────────────────────
     async function toggleInferenceMode() {
+      if (state.isToggling) return;
       state.isToggling = true;
-      const toggle = document.getElementById('mode-toggle-checkbox');
+      const toggle   = document.getElementById('mode-toggle');
       const nextMode = toggle.checked ? 'high_power' : 'low_power';
-      const originalChecked = !toggle.checked;
-      
-      // Optimistic update
+      const rollback = !toggle.checked;
+
       setModeUI(nextMode);
-      
+
       try {
-        const response = await fetch('/api/mode', {
+        const res = await fetch('/api/mode', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ mode: nextMode })
         });
-        
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
-        }
-        
-        const data = await response.json();
-        // Server confirms final mode status
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
         setModeUI(data.mode);
       } catch (err) {
-        console.error("Failed to commit mode switch:", err);
-        // Rollback toggle switch visual state
-        toggle.checked = originalChecked;
-        setModeUI(originalChecked ? 'high_power' : 'low_power');
-      } finally {
-        state.isToggling = false;
-      }
-    } catch (err) {
-        console.error("Failed to commit mode switch:", err);
-        // Rollback toggle switch visual state
-        toggle.checked = originalChecked;
-        setModeUI(originalChecked ? 'high_power' : 'low_power');
+        console.error('Mode switch failed:', err);
+        toggle.checked = rollback;
+        setModeUI(rollback ? 'high_power' : 'low_power');
       } finally {
         state.isToggling = false;
       }
@@ -1504,275 +1374,422 @@
 
     function setModeUI(mode) {
       state.inferenceMode = mode;
-      
-      const labelLow = document.getElementById('mode-label-low');
-      const labelHigh = document.getElementById('mode-label-high');
-      const toggle = document.getElementById('mode-toggle-checkbox');
-      
-      if (mode === 'high_power') {
-        toggle.checked = true;
-        labelHigh.classList.add('active');
-        labelLow.classList.remove('active');
-      } else {
-        toggle.checked = false;
-        labelLow.classList.add('active');
-        labelHigh.classList.remove('active');
-      }
-      
-      updateSystemVisualState(mode);
+      const toggle = document.getElementById('mode-toggle');
+      const lpLabel = document.getElementById('mode-lp');
+      const hpLabel = document.getElementById('mode-hp');
+
+      toggle.checked = mode === 'high_power';
+      lpLabel.classList.toggle('active', mode === 'low_power');
+      hpLabel.classList.toggle('active', mode === 'high_power');
+
+      updateSystemState(mode);
     }
 
-    function updateSystemVisualState(mode) {
-      const overlay = document.getElementById('chart-paused-overlay');
-      const flowLine = document.getElementById('pipeline-flow-line');
-      
-      if (mode === 'low_power') {
-        if (overlay) overlay.style.display = 'flex';
-        if (flowLine) flowLine.classList.add('paused');
-        
-        // Connectors go dim
-        const flowContainer = document.querySelector('.pipeline-flow-container');
-        if (flowContainer) {
-          flowContainer.querySelectorAll('.pipeline-node-icon').forEach(icon => {
-            icon.classList.remove('active');
-          });
-        }
-        
-        // All stage health dots to paused
-        setStageHealth('ingest', 'paused');
-        setStageHealth('buffer', 'paused');
-        setStageHealth('inference', 'paused');
-      } else {
-        if (overlay) overlay.style.display = 'none';
-        if (flowLine) flowLine.classList.remove('paused');
-        
-        const flowContainer = document.querySelector('.pipeline-flow-container');
-        if (flowContainer) {
-          flowContainer.querySelectorAll('.pipeline-node-icon').forEach(icon => {
-            icon.classList.add('active');
-          });
-        }
+    function updateSystemState(mode) {
+      const overlay = document.getElementById('chart-overlay');
+      const flow    = document.getElementById('pipe-flow');
+      const isLP    = mode === 'low_power';
+
+      if (overlay) overlay.classList.toggle('visible', isLP);
+      if (flow)    flow.classList.toggle('paused', isLP);
+
+      document.querySelectorAll('.pipeline-node-icon').forEach(icon => {
+        if (isLP) icon.classList.remove('active');
+        else      icon.classList.add('active');
+      });
+
+      if (isLP) {
+        ['ingest','buffer','inference'].forEach(s => setStage(s, 'paused'));
       }
     }
 
-    let watchdogTimer = null;
-
-    let watchdogTimer = null;
-
-    // ─── Telemetry Core Processing Ingestion ───────────────────────────
-    function processTelemetryFrame(frame) {
+    // ─── Core Telemetry Processing ─────────────────────────────
+    function processTelemetry(frame) {
+      // Watchdog — marks stale if no frames arrive for 2s
       clearTimeout(watchdogTimer);
       watchdogTimer = setTimeout(() => {
-         setStageHealth('ingest', 'amber');
-         setStageHealth('buffer', 'amber');
-         setStageHealth('inference', 'amber');
-         const statusBadge = document.getElementById('header-status-badge');
-         if (statusBadge) {
-           statusBadge.textContent = 'STALE DATA';
-           statusBadge.className = 'pipeline-status degraded';
-         }
+        ['ingest','buffer','inference'].forEach(s => setStage(s, 'amber'));
+        const badge = document.getElementById('header-status-badge');
+        if (badge) { badge.textContent = 'STALE DATA'; badge.className = 'pipeline-status degraded'; }
       }, 2000);
 
-      // Sync toggle position if modified externally or on initial load
+      // Sync toggle if server sends a different mode
       if (!state.isToggling && frame.inference_mode && frame.inference_mode !== state.inferenceMode) {
         setModeUI(frame.inference_mode);
       }
-      
-      const isLowPower = frame.inference_mode === 'low_power';
-      
-      // Update global states
+
+      const isLP    = frame.inference_mode === 'low_power';
+      const isFault = frame.label && frame.label !== 'normal';
+
       state.totalCycles++;
-      
-      // Store moving temp
+
+      // Rolling histories
       if (frame.board_temp_c !== undefined) {
         state.tempHistory.push(frame.board_temp_c);
         if (state.tempHistory.length > 10) state.tempHistory.shift();
       }
-      
-      // Store rolling values
-      state.imbalanceHistory.push(frame.imbalance_prob ?? 0.0);
-      if (state.imbalanceHistory.length > 20) state.imbalanceHistory.shift();
-      
-      state.bearingHistory.push(frame.bearing_prob ?? 0.0);
-      if (state.bearingHistory.length > 20) state.bearingHistory.shift();
-      
-      state.loosenessHistory.push(frame.looseness_prob ?? 0.0);
-      if (state.loosenessHistory.length > 20) state.loosenessHistory.shift();
-      
-      state.bearingHistory.push(frame.bearing_prob ?? 0.0);
-      if (state.bearingHistory.length > 20) state.bearingHistory.shift();
-      
-      state.loosenessHistory.push(frame.looseness_prob ?? 0.0);
-      if (state.loosenessHistory.length > 20) state.loosenessHistory.shift();
-      
-      // Ingest calculations
-      const isFault = frame.label && frame.label !== 'normal';
+
+      const push = (arr, val, max) => { arr.push(val); if (arr.length > max) arr.shift(); };
+      push(state.imbalanceHistory, frame.imbalance_prob ?? 0, 20);
+      push(state.bearingHistory,   frame.bearing_prob   ?? 0, 20);
+      push(state.loosenessHistory, frame.looseness_prob ?? 0, 20);
+
+      // Fault counts
       if (isFault) {
         state.faultCycles++;
         state.faultCounts[frame.label] = (state.faultCounts[frame.label] || 0) + 1;
-        
-        // Update sidebar counts
-        const cntEl = document.getElementById(`summary-count-${frame.label}`);
-        if (cntEl) {
-          cntEl.textContent = state.faultCounts[frame.label];
-          cntEl.style.color = `var(--color-${frame.label})`;
+        const el = document.getElementById(`count-${frame.label}`);
+        if (el) {
+          el.textContent = state.faultCounts[frame.label];
+          el.style.color = `var(--color-${frame.label})`;
         }
       }
-      
-      // Define system status badge
-      let statusStr = 'RUNNING';
-      let statusClass = 'running';
-      
-      if (isLowPower) {
-        statusStr = 'PAUSED';
-        statusClass = 'paused';
-      } else if (isFault) {
-        statusStr = 'FAULT';
-        statusClass = 'fault';
-      } else if ((frame.drop_rate_pct !== undefined && frame.drop_rate_pct > 2.0) || 
-                 (frame.latency_ms !== undefined && frame.latency_ms > 50)) {
-        statusStr = 'DEGRADED';
-        statusClass = 'degraded';
+
+      // Header badge
+      let statusStr = 'RUNNING', statusCls = 'running';
+      if (isLP)    { statusStr = 'PAUSED';   statusCls = 'paused'; }
+      else if (isFault) { statusStr = 'FAULT'; statusCls = 'fault'; }
+      else if ((frame.drop_rate_pct ?? 0) > 2 || (frame.latency_ms ?? 0) > 50) {
+        statusStr = 'DEGRADED'; statusCls = 'degraded';
       }
-      
-      const statusBadge = document.getElementById('header-status-badge');
-      if (statusBadge) {
-        statusBadge.textContent = statusStr;
-        statusBadge.className = `pipeline-status ${statusClass}`;
+
+      const badge = document.getElementById('header-status-badge');
+      if (badge) { badge.textContent = statusStr; badge.className = `pipeline-status ${statusCls}`; }
+
+      // Stage dots
+      if (!isLP) {
+        setStage('ingest',    (frame.drop_rate_pct ?? 0) > 5 ? 'red'  : (frame.drop_rate_pct ?? 0) > 2 ? 'amber' : 'green');
+        setStage('buffer',    (frame.n_rows ?? 200) === 0    ? 'red'  : (frame.n_rows ?? 200) < 100    ? 'amber' : 'green');
+        setStage('inference', (frame.latency_ms ?? 0) > 50   ? 'red'  : (frame.latency_ms ?? 0) > 10   ? 'amber' : 'green');
       }
-      
-      // Update stage navigation dots based on telemetry status
-      if (!isLowPower) {
-        const ingestHealth = (frame.drop_rate_pct > 5.0) ? 'red' : (frame.drop_rate_pct > 2.0) ? 'amber' : 'green';
-        setStageHealth('ingest', ingestHealth);
-        
-        const bufferHealth = (frame.n_rows === 0) ? 'red' : (frame.n_rows < 100) ? 'amber' : 'green';
-        setStageHealth('buffer', bufferHealth);
-        
-        const inferenceHealth = (frame.latency_ms > 50) ? 'red' : (frame.latency_ms > 10) ? 'amber' : 'green';
-        setStageHealth('inference', inferenceHealth);
-      }
-      
-      // Update KPIs
-      updateKPIs(frame, isLowPower);
-      
-      if (chartInstance && !isLowPower) {
-        // Rolling push — shift oldest, push newest per dataset
-        chartInstance.data.datasets[0].data.push(frame.normal_prob ?? 0.0);
-        chartInstance.data.datasets[1].data.push(frame.imbalance_prob ?? 0.0);
-        chartInstance.data.datasets[2].data.push(frame.bearing_prob ?? 0.0);
-        chartInstance.data.datasets[3].data.push(frame.looseness_prob ?? 0.0);
+
+      // KPIs
+      updateKPIs(frame, isLP);
+
+      // Chart
+      if (chartInstance && !isLP) {
+        chartInstance.data.datasets[0].data.push(frame.normal_prob    ?? 0);
+        chartInstance.data.datasets[1].data.push(frame.imbalance_prob ?? 0);
+        chartInstance.data.datasets[2].data.push(frame.bearing_prob   ?? 0);
+        chartInstance.data.datasets[3].data.push(frame.looseness_prob ?? 0);
         if (chartInstance.data.datasets[0].data.length > MAX_CHART_FRAMES) {
           chartInstance.data.datasets.forEach(ds => ds.data.shift());
           chartInstance.data.labels.shift();
         }
-        // Advance the rolling timestamp label
-        const nowLabel = new Date(frame.ts * 1000).toISOString().substr(11, 8);
-        chartInstance.data.labels.push(nowLabel);
+        chartInstance.data.labels.push(new Date(frame.ts * 1000).toISOString().substr(11, 8));
         chartInstance.update('none');
       }
-      
-      // Process Sentry Anomaly Cards
-      if (isFault && !isLowPower) {
-        createAnomalyCard(frame);
-        triggerAnomalyAlertBanner(frame);
+
+      // Anomaly cards + alert
+      if (isFault && !isLP) {
+        addAnomalyCard(frame);
+        showAlertBanner(frame);
       }
-      
-      // Append Log Event
-      appendLogEvent(frame, statusStr);
+
+      // Log row
+      addLogRow(frame, statusStr);
     }
 
-    // ─── KPI Counter Rendering ─────────────────────────────────────────
-    function updateKPIs(frame, isLowPower) {
-      // 1. Total Cycles
-      animateCounter('kpi-total-cycles', state.totalCycles);
-      
-      const faultRateNum = state.totalCycles > 0
-        ? (state.faultCycles / state.totalCycles) * 100
-        : 0;
-      const faultRate = faultRateNum.toFixed(1) + '%';
-      const faultRateEl = document.getElementById('kpi-fault-rate');
-      faultRateEl.textContent = faultRate;
-      // Color the value tile red when fault rate is alarming
-      if (faultRateNum >= 10) {
-        faultRateEl.style.color = 'var(--color-error)';
-      } else if (faultRateNum >= 5) {
-        faultRateEl.style.color = 'var(--color-warning)';
-      } else {
-        faultRateEl.style.color = 'var(--color-text)';
-      }
-      
+    // ─── KPI Updates ───────────────────────────────────────────
+    function updateKPIs(frame, isLP) {
+      // Cycles
+      document.getElementById('kpi-cycles').textContent = state.totalCycles.toLocaleString();
+
+      // Fault rate
+      const faultPct = state.totalCycles > 0 ? (state.faultCycles / state.totalCycles) * 100 : 0;
+      const faultEl  = document.getElementById('kpi-fault-rate');
+      faultEl.textContent = faultPct.toFixed(1) + '%';
+      faultEl.style.color = faultPct >= 10 ? 'var(--color-error)' : faultPct >= 5 ? 'var(--color-warning)' : '';
+
       const faultTrend = document.getElementById('kpi-fault-trend');
       if (state.faultCycles > 0) {
         faultTrend.className = 'kpi-trend trend-up';
-        faultTrend.innerHTML = `↗ Faults`;
+        faultTrend.textContent = '↗ Faults';
       } else {
         faultTrend.className = 'kpi-trend trend-neutral';
         faultTrend.textContent = 'Nominal';
       }
-      
-      // 3. Mean Latency
-      const meanLatencyVal = document.getElementById('kpi-mean-latency');
-      const latencyTrend = document.getElementById('kpi-latency-trend');
-      
-      if (isLowPower) {
-        meanLatencyVal.textContent = '—';
-        latencyTrend.className = 'kpi-trend trend-neutral';
-        latencyTrend.textContent = 'Paused';
-      } else {
-        if (frame.latency_ms !== undefined) {
-          state.latencyHistory.push(frame.latency_ms);
-          if (state.latencyHistory.length > 60) state.latencyHistory.shift();
-          
-          const sum = state.latencyHistory.reduce((a, b) => a + b, 0);
-          const mean = (sum / state.latencyHistory.length).toFixed(1);
-          meanLatencyVal.textContent = mean;
-          
-          // Trend icon based on comparison with last sample
-          const lastVal = state.latencyHistory[state.latencyHistory.length - 2];
-          if (lastVal !== undefined) {
-            const diff = frame.latency_ms - lastVal;
-            if (diff > 2.0) {
-              latencyTrend.className = 'kpi-trend trend-up';
-              latencyTrend.innerHTML = `↗ Latent`;
-            } else if (diff < -2.0) {
-              latencyTrend.className = 'kpi-trend trend-down';
-              latencyTrend.innerHTML = `↘ Fast`;
-            } else {
-              latencyTrend.className = 'kpi-trend trend-neutral';
-              latencyTrend.textContent = 'Stable';
-            }
-          }
+
+      // Latency
+      const latEl    = document.getElementById('kpi-latency');
+      const latTrend = document.getElementById('kpi-latency-trend');
+      if (isLP) {
+        latEl.textContent    = '—';
+        latTrend.className   = 'kpi-trend trend-neutral';
+        latTrend.textContent = 'Paused';
+      } else if (frame.latency_ms !== undefined) {
+        state.latencyHistory.push(frame.latency_ms);
+        if (state.latencyHistory.length > 60) state.latencyHistory.shift();
+        const mean = state.latencyHistory.reduce((a, b) => a + b, 0) / state.latencyHistory.length;
+        latEl.textContent = mean.toFixed(1);
+        const prev = state.latencyHistory[state.latencyHistory.length - 2];
+        if (prev !== undefined) {
+          const d = frame.latency_ms - prev;
+          if (d > 2)       { latTrend.className = 'kpi-trend trend-up';   latTrend.textContent = '↗ Latent'; }
+          else if (d < -2) { latTrend.className = 'kpi-trend trend-down'; latTrend.textContent = '↘ Fast'; }
+          else             { latTrend.className = 'kpi-trend trend-neutral'; latTrend.textContent = 'Stable'; }
         }
       }
-      
-      // 4. Board Temperature
-      const tempVal = document.getElementById('kpi-board-temp');
+
+      // Temp
+      const tempEl    = document.getElementById('kpi-temp');
       const tempTrend = document.getElementById('kpi-temp-trend');
-      
       if (frame.board_temp_c !== undefined) {
-        tempVal.textContent = frame.board_temp_c.toFixed(1) + '°C';
-        
-        // Calculate delta against last 10 frames
+        tempEl.textContent = frame.board_temp_c.toFixed(1) + '°C';
         if (state.tempHistory.length >= 2) {
-          const prevTenSum = state.tempHistory.slice(0, -1).reduce((a, b) => a + b, 0);
-          const prevTenMean = prevTenSum / (state.tempHistory.length - 1);
-          const delta = frame.board_temp_c - prevTenMean;
-          
+          const prev  = state.tempHistory.slice(0, -1).reduce((a, b) => a + b, 0) / (state.tempHistory.length - 1);
+          const delta = frame.board_temp_c - prev;
           if (Math.abs(delta) > 0.05) {
-            const sign = delta > 0 ? '+' : '';
-            tempTrend.className = delta > 0 ? 'kpi-trend trend-up' : 'kpi-trend trend-down';
-            tempTrend.innerHTML = `${sign}${delta.toFixed(2)} ${delta > 0 ? '↑' : '↓'}`;
+            tempTrend.className   = delta > 0 ? 'kpi-trend trend-up' : 'kpi-trend trend-down';
+            tempTrend.textContent = (delta > 0 ? '+' : '') + delta.toFixed(2) + (delta > 0 ? ' ↑' : ' ↓');
           } else {
-            tempTrend.className = 'kpi-trend trend-neutral';
+            tempTrend.className   = 'kpi-trend trend-neutral';
             tempTrend.textContent = 'Stable';
           }
         }
-        
-        const headerTemp = document.getElementById('board-temp-header');
-        if (headerTemp) headerTemp.textContent = frame.board_temp_c.toFixed(1) + '°C';
       }
-    };
+
+      // Energy Waste
+      const energyEl = document.getElementById('kpi-energy');
+      const energyTrend = document.getElementById('kpi-energy-trend');
+      if (isLP) {
+          energyEl.textContent = '—';
+          energyTrend.className = 'kpi-trend trend-neutral';
+          energyTrend.textContent = 'Paused';
+          energyEl.style.color = '';
+      } else if (frame.energy_waste !== undefined) {
+          energyEl.textContent = frame.energy_waste.toFixed(1) + '%';
+          if (frame.energy_waste > 5.0) {
+              energyTrend.className = 'kpi-trend trend-up';
+              energyTrend.innerHTML = 'High';
+              energyEl.style.color = 'var(--color-error)';
+          } else {
+              energyTrend.className = 'kpi-trend trend-down';
+              energyTrend.innerHTML = 'Low';
+              energyEl.style.color = 'var(--color-success)';
+          }
+      }
+    }
+
+    // ─── Anomaly Card ──────────────────────────────────────────
+    function addAnomalyCard(frame) {
+      const container = document.getElementById('anomaly-list');
+      if (!container) return;
+
+      const prob    = frame.imbalance_prob ?? 0;
+      const color   = `var(--color-${frame.label})`;
+      const tempStr = frame.board_temp_c != null ? frame.board_temp_c.toFixed(1) + '°C' : '—';
+      const hist    = state.imbalanceHistory.slice();
+      const ts      = new Date((frame.ts || Date.now() / 1000) * 1000);
+      const timeStr = ts.toISOString().substr(11, 8);
+
+      // Sparkline path
+      const W = 64, H = 16;
+      const max = Math.max(...hist, 0.001);
+      const pts = hist.map((v, i) => {
+        const x = (i / (hist.length - 1)) * W;
+        const y = H - (v / max) * H;
+        return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`;
+      }).join(' ');
+
+      const card = document.createElement('div');
+      card.className = 'anomaly-card';
+      card.innerHTML = `
+        <div class="anomaly-left">
+          <div class="anomaly-dot" style="background:${color};"></div>
+          <div class="anomaly-meta">
+            <div class="anomaly-title-row">
+              <span class="anomaly-class" style="color:${color};">${escapeHTML(frame.label)}</span>
+              <span class="anomaly-prob" style="color:${color};">${(prob * 100).toFixed(0)}%</span>
+            </div>
+            <div class="anomaly-sub">seq ${escapeHTML(String(frame.seq_num ?? '—'))} · ${timeStr}</div>
+          </div>
+        </div>
+        <div class="anomaly-right">
+          <svg class="anomaly-sparkline" viewBox="0 0 ${W} ${H}" style="stroke:${color};">
+            <path d="${pts}"/>
+          </svg>
+          <span class="anomaly-temp">${tempStr}</span>
+        </div>
+      `;
+
+      container.prepend(card);
+
+      state.anomalies.unshift(frame);
+      if (state.anomalies.length > MAX_ANOMALY_CARDS) {
+        state.anomalies.pop();
+        const last = container.lastElementChild;
+        if (last) container.removeChild(last);
+      }
+    }
+
+    // ─── Alert Banner ──────────────────────────────────────────
+    function showAlertBanner(frame) {
+      const banner = document.getElementById('alert-banner');
+      const text   = document.getElementById('alert-banner-text');
+      if (!banner || !text) return;
+
+      const prob = ((frame.imbalance_prob ?? 0) * 100).toFixed(0);
+      text.innerHTML = `Anomaly: <strong>${escapeHTML(frame.label)}</strong> · ${prob}% confidence`;
+
+      // Remove dismissing class so transition plays correctly
+      banner.classList.remove('dismissing');
+      banner.classList.add('visible');
+
+      clearTimeout(alertTimer);
+      alertTimer = setTimeout(() => {
+        banner.classList.add('dismissing');
+        banner.addEventListener('transitionend', () => {
+          banner.classList.remove('visible', 'dismissing');
+        }, { once: true });
+      }, 5000);
+    }
+
+    document.getElementById('alert-view-btn').addEventListener('click', () => {
+      const banner = document.getElementById('alert-banner');
+      banner.classList.add('dismissing');
+      banner.addEventListener('transitionend', () => {
+        banner.classList.remove('visible', 'dismissing');
+      }, { once: true });
+      clearTimeout(alertTimer);
+      document.getElementById('anomaly-list').scrollIntoView({ behavior: 'smooth' });
+    });
+
+    // ─── Log Row ───────────────────────────────────────────────
+    function addLogRow(frame, statusStr) {
+      const container = document.getElementById('log-rows');
+      if (!container) return;
+
+      const ts      = new Date((frame.ts || Date.now() / 1000) * 1000);
+      const timeStr = ts.toISOString().substr(11, 12);
+      const prob    = frame.imbalance_prob != null ? (frame.imbalance_prob * 100).toFixed(1) + '%' : '—';
+      const latency = frame.latency_ms    != null ? frame.latency_ms.toFixed(1) + 'ms' : '—';
+
+      let rowCls = 'log-row';
+      if (frame.label === 'bearing')   rowCls += ' fault';
+      else if (frame.label === 'imbalance') rowCls += ' fault-imbalance';
+      else if (frame.label === 'looseness') rowCls += ' fault-looseness';
+
+      const row = document.createElement('div');
+      row.className = rowCls;
+      row.innerHTML = `
+        <span class="log-time">${timeStr}</span>
+        <span class="log-stage">#${escapeHTML(String(frame.seq_num ?? '—'))}</span>
+        <span class="log-label" style="color:var(--color-${escapeHTML(frame.label ?? 'normal')})">${escapeHTML(frame.label ?? '—')}</span>
+        <span class="log-prob">${prob}</span>
+        <span class="log-latency">${escapeHTML(String(latency))}</span>
+      `;
+
+      container.prepend(row);
+      state.logs.unshift(frame);
+
+      if (state.logs.length > MAX_LOG_ROWS) {
+        state.logs.pop();
+        const last = container.lastElementChild;
+        if (last) container.removeChild(last);
+      }
+    }
+
+    // ─── Demo Data Generator ────────────────────────────────────
+    // Generates realistic mock telemetry so the UI is fully live
+    // without any hardware or server connection.
+    let demoSeq  = 0;
+    let demoTemp = 38.5;
+    let demoInterval = null;
+
+    // Weighted fault scenario picker
+    // 80% normal, 10% imbalance, 6% looseness, 4% bearing
+    const SCENARIOS = [
+      ...Array(80).fill('normal'),
+      ...Array(10).fill('imbalance'),
+      ...Array(6).fill('looseness'),
+      ...Array(4).fill('bearing'),
+    ];
+
+    function makeDemoFrame() {
+      demoSeq++;
+      // Temperature drifts slowly with small noise
+      demoTemp += (Math.random() - 0.49) * 0.15;
+      demoTemp  = Math.max(34, Math.min(58, demoTemp));
+
+      const label = SCENARIOS[Math.floor(Math.random() * SCENARIOS.length)];
+      const isFault = label !== 'normal';
+
+      // Build probabilities that sum to ~1
+      let normal_prob    = 0.0;
+      let imbalance_prob = 0.0;
+      let bearing_prob   = 0.0;
+      let looseness_prob = 0.0;
+
+      if (!isFault) {
+        normal_prob    = 0.82 + Math.random() * 0.15;          // 0.82–0.97
+        const rem      = 1 - normal_prob;
+        imbalance_prob = rem * (0.3 + Math.random() * 0.4);
+        bearing_prob   = rem * (Math.random() * 0.3);
+        looseness_prob = Math.max(0, rem - imbalance_prob - bearing_prob);
+      } else {
+        // Fault scenario — dominant probability on the fault class
+        const dominant = 0.76 + Math.random() * 0.20;          // 0.76–0.96
+        if (label === 'imbalance') {
+          imbalance_prob = dominant;
+          normal_prob    = (1 - dominant) * 0.6;
+          bearing_prob   = (1 - dominant) * 0.2;
+          looseness_prob = Math.max(0, 1 - imbalance_prob - normal_prob - bearing_prob);
+        } else if (label === 'bearing') {
+          bearing_prob   = dominant;
+          normal_prob    = (1 - dominant) * 0.5;
+          imbalance_prob = (1 - dominant) * 0.3;
+          looseness_prob = Math.max(0, 1 - bearing_prob - normal_prob - imbalance_prob);
+        } else {
+          looseness_prob = dominant;
+          normal_prob    = (1 - dominant) * 0.55;
+          imbalance_prob = (1 - dominant) * 0.25;
+          bearing_prob   = Math.max(0, 1 - looseness_prob - normal_prob - imbalance_prob);
+        }
+      }
+
+      return {
+        ts:             Date.now() / 1000,
+        seq_num:        demoSeq,
+        inference_mode: 'high_power',
+        label,
+        normal_prob,
+        imbalance_prob,
+        bearing_prob,
+        looseness_prob,
+        confidence:     isFault ? 0.78 + Math.random() * 0.18 : 0.88 + Math.random() * 0.10,
+        board_temp_c:   +demoTemp.toFixed(2),
+        latency_ms:     +(4.5 + Math.random() * 8).toFixed(2),
+        drop_rate_pct:  +(Math.random() * 0.8).toFixed(3),
+        n_rows:         128 + Math.floor(Math.random() * 64),
+        source:         isFault ? 'anomaly_trigger' : 'sensor_batch',
+        temp_state:     demoTemp > 52 ? 'hot' : demoTemp > 45 ? 'warm' : 'normal',
+      };
+    }
+
+    function startDemo() {
+      // Mark UI as live
+      setConnDot('connected');
+      showReconnectBanner(false);
+      setStage('ingest',    'green');
+      setStage('buffer',    'green');
+      setStage('inference', 'green');
+      setStage('broadcast', 'green');
+
+      // Show a demo indicator in the header badge
+      const badge = document.getElementById('header-status-badge');
+      if (badge) { badge.textContent = 'DEMO'; badge.className = 'pipeline-status running'; }
+
+      // Feed frames at ~4 Hz — realistic inference cadence
+      demoInterval = setInterval(() => {
+        processTelemetry(makeDemoFrame());
+      }, 250);
+    }
+
+    // ─── Boot ──────────────────────────────────────────────────
+    lucide.createIcons();
+    initChart();
+    connectWS();
   </script>
 </body>
 </html>

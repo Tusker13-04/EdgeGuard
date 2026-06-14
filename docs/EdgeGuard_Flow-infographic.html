@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>EdgeGuard Flow</title>
+  <style>
+    body, html { margin: 0; padding: 0; width: 100%; height: 100%; font-family: sans-serif; }
+    #container { width: 100vw; height: 100vh; }
+    #export-btn { position: fixed; top: 16px; right: 16px; padding: 8px 16px; background: #00979D; color: white; border: none; border-radius: 4px; cursor: pointer; z-index: 999; }
+  </style>
+</head>
+<body>
+  <button id="export-btn">Export SVG</button>
+  <div id="container"></div>
+  <script src="https://unpkg.com/@antv/infographic@latest/dist/infographic.min.js"></script>
+  <script>
+    const syntax = `infographic sequence-ascending-steps
+data
+  title EdgeGuard System Flow
+  desc Solves industrial downtime & energy waste via Edge AI
+  sequences
+    - label Sensor Ingestion
+      desc STM32 buffers vibration & temp data
+      icon activity
+    - label Edge ML Inference
+      desc Qualcomm runs ONNX model inference
+      icon brain
+    - label Energy Optimization
+      desc np.var triggers low-power standby
+      icon battery charging
+    - label IPC MQTT Bridge
+      desc ThreadPool syncs anomalies to AWS
+      icon cloud upload
+  order asc`;
+    const info = new AntVInfographic.Infographic({ container: '#container', width: '100%', height: '100%' });
+    info.render(syntax);
+    document.fonts?.ready.then(() => info.render(syntax));
+    document.getElementById('export-btn').addEventListener('click', async () => {
+      const svg = await info.toDataURL({ type: 'svg' });
+      const a = document.createElement('a'); a.href = svg; a.download = 'EdgeGuard_Flow.svg'; a.click();
+    });
+  </script>
+</body>
+</html>

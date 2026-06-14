@@ -19,14 +19,6 @@ BATCH_PACKETS = 100
 PACKET_SIZE   = 24
 BATCH_SIZE    = PACKET_SIZE * BATCH_PACKETS
 
-def get_bridge_fifo_path(override: str = None) -> str:
-    """Centralized resolution for the Bridge IPC socket path."""
-    return (
-        override
-        or os.environ.get("EDGEGUARD_BRIDGE_FIFO")
-        or "/run/arduino/sensor_batch"
-    )
-
 # ─── Ingest Base Class ─────────────────────────────────────────────────────
 class BaseReceiver(ABC):
     """Abstract base class for telemetry ingest providers."""

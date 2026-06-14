@@ -18,6 +18,7 @@ import threading
 import urllib.request
 import urllib.error
 import json
+import ssl
 import msgpack
 import numpy as np
 from typing import List, Tuple, Optional
@@ -125,6 +126,10 @@ class BridgeReceiver(BaseReceiver):
         self._cooldown_thread: Optional[threading.Thread] = None
         self._cooldown_event: Optional[threading.Event] = None
         self._cooldown_lock = threading.Lock()
+        
+        # Thread Pool for background IO
+        from concurrent.futures import ThreadPoolExecutor
+        self.executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="bridge-io")
 
     # ── Public run loop ───────────────────────────────────────────────────
 
@@ -156,11 +161,15 @@ class BridgeReceiver(BaseReceiver):
                             msg_type, method, params = msg[0], msg[1], msg[2]
 
                             if msg_type == 2 and method == "sensor_batch":
-                                self._handle_batch(params[0], buf)
+                                if isinstance(params, (list, tuple)) and len(params) > 0:
+                                    self._handle_batch(params[0], buf)
 
                             elif msg_type == 2 and method == "anomaly_trigger":
                                 # ── FIX CRITIQUE 1: MCU autonomous escalation ──
-                                self._handle_anomaly_trigger(params)
+                                if isinstance(params, dict):
+                                    self._handle_anomaly_trigger(params)
+                                else:
+                                    log.warning("[BridgeReceiver] anomaly_trigger params must be a dict")
 
             except (socket.error, ConnectionRefusedError) as exc:
                 if not stop_event.is_set():
@@ -204,34 +213,35 @@ class BridgeReceiver(BaseReceiver):
         )
 
         with self._cooldown_lock:
-            self._last_trigger_time = time.monotonic()
+            now = time.monotonic()
+            
+            # Rate-limit escalate HTTP post to max 1 per 5s
+            if not hasattr(self, "_last_post_time") or now - getattr(self, "_last_post_time", 0.0) > 5.0:
+                self._last_post_time = now
+                # Fire mode escalation in background thread to avoid blocking ingest
+                self.executor.submit(self._post_mode, "high_power")
 
-        # Fire mode escalation in background thread to avoid blocking ingest
-        threading.Thread(
-            target=self._post_mode,
-            args=("high_power",),
-            daemon=True,
-            name="anomaly-escalate",
-        ).start()
+            self._last_trigger_time = now
 
         # Start/reset cooldown watcher
         self._reset_cooldown_thread()
 
     def _reset_cooldown_thread(self) -> None:
-        """Start a new cooldown thread, cancelling any previous one via event."""
+        """Start a new cooldown thread if one isn't already running."""
         with self._cooldown_lock:
-            if self._cooldown_event:
-                self._cooldown_event.set()
-            self._cooldown_event = threading.Event()
+            if self._cooldown_thread is None or not self._cooldown_thread.is_alive():
+                if self._cooldown_event:
+                    self._cooldown_event.set()
+                self._cooldown_event = threading.Event()
 
-            t = threading.Thread(
-                target=self._cooldown_worker,
-                args=(self._cooldown_event,),
-                daemon=True,
-                name="anomaly-cooldown",
-            )
-            self._cooldown_thread = t
-            t.start()
+                t = threading.Thread(
+                    target=self._cooldown_worker,
+                    args=(self._cooldown_event,),
+                    daemon=True,
+                    name="anomaly-cooldown",
+                )
+                self._cooldown_thread = t
+                t.start()
 
     def _cooldown_worker(self, cancel_event: threading.Event) -> None:
         """
@@ -253,25 +263,25 @@ class BridgeReceiver(BaseReceiver):
                 "[BridgeReceiver] Cooldown elapsed (%.0fs) — reverting to low_power.",
                 AUTO_COOLDOWN_S,
             )
-            threading.Thread(
-                target=self._post_mode,
-                args=("low_power",),
-                daemon=True,
-                name="anomaly-revert",
-            ).start()
+            self.executor.submit(self._post_mode, "low_power")
 
     @staticmethod
     def _post_mode(mode: str) -> None:
         """POST /api/mode to the dashboard server. Best-effort; logs on failure."""
         url  = f"{_DASHBOARD_URL}/api/mode"
+        if not url.startswith(("http://", "https://")):
+            log.error("[BridgeReceiver] Invalid dashboard URL scheme: %s", url)
+            return
+
         body = json.dumps({"mode": mode}).encode()
         req  = urllib.request.Request(
             url, data=body,
             headers={"Content-Type": "application/json"},
             method="POST",
         )
+        ctx = ssl.create_default_context()
         try:
-            with urllib.request.urlopen(req, timeout=2.0) as resp:
+            with urllib.request.urlopen(req, timeout=2.0, context=ctx) as resp:
                 log.info(
                     "[BridgeReceiver] Mode escalation -> %s acknowledged (HTTP %d).",
                     mode, resp.status,

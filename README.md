@@ -125,18 +125,25 @@ pio run -e uno_q --target upload
    `OneWire`, `DallasTemperature`, `Arduino_RouterBridge`.
 4. Upload.
 
-### 2. MPU Setup (QRB2210)
+### 2. MPU Setup (QRB2210) & Greengrass V2
 
 Connect via SSH or the UNO Q serial console.
 
 ```bash
 git clone https://github.com/Tusker13-04/EdgeGuard
 cd EdgeGuard
-pip install -r requirements.txt     # Python >= 3.10 required
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
 ```
 
-Ensure the `arduino-router` daemon is running (it starts automatically on boot on
-stock UNO Q firmware and exposes `/var/run/arduino-router.sock`).
+**AWS Greengrass Integration:**
+EdgeGuard runs as an AWS IoT Greengrass v2 component (`com.edgeguard.inference`).
+The provided `recipe.yaml` manages the Python lifecycle and grants permissions for IPC MQTT publishing and local shadow subscriptions.
+
+1. Ensure the `arduino-router` daemon is running.
+2. Install Greengrass Core on the Debian OS with a proper Token Exchange Service (TES) role.
+3. Deploy the component via the AWS IoT Console using the local `recipe.yaml`.
 
 ### 3. Live inference
 
@@ -201,17 +208,22 @@ uvicorn dashboard.server:app --host 0.0.0.0 --port 8080
 | `EDGEGUARD_ALLOWED_ORIGINS` | *(any)* | Comma-separated allowed WebSocket origins |
 | `EDGEGUARD_RMS_THRESHOLD` | `40.0` | RMS anomaly threshold in m/s². Override to calibrate for your specific motor. |
 
-### 6. Deploy ONNX model (after Edge Impulse training)
+### 6. Deploy ONNX model via Over-The-Air (OTA) Updates
 
+No manual copying is needed in production. Once your Edge Impulse model is trained:
+1. Export the **ONNX** model and upload it to your designated S3 bucket (e.g. `s3://edgeguard-artifacts/models/v1.2.onnx`).
+2. Update the `desired` state of the `EdgeGuardModelShadow` device shadow in AWS IoT Core:
+   ```json
+   { "state": { "desired": { "model_version": "models/v1.2.onnx" } } }
+   ```
+3. The Greengrass IPC client (`src/engine.py`) detects the delta, securely downloads the new model using AWS TES credentials via `boto3`, and hot-reloads the inference session seamlessly.
+
+*(Fallback)*: If you are running locally without Greengrass:
 ```bash
 mkdir -p model
 cp edgeguard.onnx model/edgeguard.onnx
-# Restart main.py — model loads automatically. No code changes needed.
 ```
-
-The pipeline falls back to RMS-based anomaly detection until a model is present.
-After ONNX failures exceed 5 consecutive cycles, the ONNX session is permanently
-disabled until process restart.
+The pipeline falls back to RMS-based anomaly detection until a model is loaded.
 
 ---
 

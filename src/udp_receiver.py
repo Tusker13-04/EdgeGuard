@@ -19,6 +19,8 @@ import time
 import logging
 import numpy as np
 import socket
+import threading
+from typing import Optional
 
 from src.schema import BaseReceiver
 
@@ -39,6 +41,7 @@ class PacketParser:
         self._last_temp_c   = None
         self.total_received = 0
         self.total_dropped  = 0
+        self._lock = threading.Lock()
 
     def parse(self, packet_bytes: bytes):
         """
@@ -62,50 +65,56 @@ class PacketParser:
                 ax, ay, az, seq_id,
             )
             return None
-        if not (-40.0 <= temp <= 125.0):
-            log.warning(
-                "[PacketParser] Implausible temperature %.2f deg C seq=%d — clamping to last known.",
-                temp, seq_id,
-            )
-            temp = self._last_temp_c if self._last_temp_c is not None else 25.0
-
-        self._last_temp_c = round(float(temp), 2)
-
-        jitter_ms = 0.0
-        if self._last_arrival is not None:
-            jitter_ms = (now - self._last_arrival) * 1000.0
-        self._last_arrival = now
-
-        dropped = 0
-        if self._last_seq is not None:
-            gap = (seq_id - self._last_seq - 1) & 0xFFFFFFFF
-            elapsed_s = now - self._last_arrival
-            max_plausible = max(int(elapsed_s * 400 * 2), 10_000)
-            if gap > max_plausible:
+        
+        with self._lock:
+            if not (-40.0 <= temp <= 125.0):
                 log.warning(
-                    "[PacketParser] Implausible sequence gap %d -> %d (gap=%d, elapsed=%.2fs); treating as reboot.",
-                    self._last_seq, seq_id, gap, elapsed_s
+                    "[PacketParser] Implausible temperature %.2f deg C seq=%d — clamping to last known.",
+                    temp, seq_id,
                 )
-                gap = 0
-            dropped = int(gap)
-            self.total_dropped += dropped
-        self._last_seq = seq_id
-        self.total_received += 1
+                temp = self._last_temp_c if self._last_temp_c is not None else 25.0
+
+            self._last_temp_c = round(float(temp), 2)
+
+            jitter_ms = 0.0
+            elapsed_s = 0.0
+            if self._last_arrival is not None:
+                elapsed_s = now - self._last_arrival
+                jitter_ms = elapsed_s * 1000.0
+
+            dropped = 0
+            if self._last_seq is not None:
+                gap = (seq_id - self._last_seq - 1) & 0xFFFFFFFF
+                max_plausible = max(int(elapsed_s * 400 * 2), 10_000)
+                if gap > max_plausible:
+                    log.warning(
+                        "[PacketParser] Implausible sequence gap %d -> %d (gap=%d, elapsed=%.2fs); treating as reboot.",
+                        self._last_seq, seq_id, gap, elapsed_s
+                    )
+                    gap = 0
+                dropped = int(gap)
+                self.total_dropped += dropped
+            
+            self._last_seq = seq_id
+            self._last_arrival = now
+            self.total_received += 1
 
         features = np.array([ax, ay, az, temp], dtype=np.float32)
         return ts_us, seq_id, features, jitter_ms, dropped
 
     @property
-    def last_temp_c(self):
+    def last_temp_c(self) -> Optional[float]:
         """Most recent board temperature in degrees C, or None before first packet."""
-        return self._last_temp_c
+        with self._lock:
+            return self._last_temp_c
 
     @property
     def drop_rate_pct(self) -> float:
-        total = self.total_received + self.total_dropped
-        if total == 0:
-            return 0.0
-        return 100.0 * self.total_dropped / total
+        with self._lock:
+            total = self.total_received + self.total_dropped
+            if total == 0:
+                return 0.0
+            return 100.0 * self.total_dropped / total
 
 
 class UDPReceiver(BaseReceiver):

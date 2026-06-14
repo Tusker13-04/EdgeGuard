@@ -16,6 +16,8 @@
 import os
 import csv
 import time
+import re
+import logging
 import numpy as np
 from datetime import datetime, timezone
 
@@ -37,21 +39,27 @@ def save_window_as_csv(window: np.ndarray, label: str, output_dir: str,
     window_index is appended to the filename to prevent timestamp collisions
     when multiple windows are saved in the same millisecond.
     """
-    assert window.shape == (WINDOW_SIZE, N_FEATURES), (
-        f"Window shape {window.shape} != ({WINDOW_SIZE}, {N_FEATURES})"
-    )
-    label_dir = os.path.join(output_dir, label)
+    if window.shape != (WINDOW_SIZE, N_FEATURES):
+        raise ValueError(f"Window shape {window.shape} != ({WINDOW_SIZE}, {N_FEATURES})")
+
+    # Sanitize label to prevent path traversal
+    safe_label = re.sub(r'[^a-zA-Z0-9_-]', '_', label)
+    label_dir = os.path.join(output_dir, safe_label)
     os.makedirs(label_dir, exist_ok=True)
 
     ts_str   = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
     filepath = os.path.join(label_dir, f"{ts_str}_{window_index:04d}.csv")
 
-    with open(filepath, "w", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow(["timestamp"] + FEATURE_COLS)
-        for i, row in enumerate(window):
-            timestamp_ms = round(i * ROW_INTERVAL_MS, 3)
-            writer.writerow([timestamp_ms] + [round(float(v), 6) for v in row])
+    try:
+        with open(filepath, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(["timestamp"] + FEATURE_COLS)
+            for i, row in enumerate(window):
+                timestamp_ms = round(i * ROW_INTERVAL_MS, 3)
+                writer.writerow([timestamp_ms] + [round(float(v), 6) for v in row])
+    except IOError as e:
+        logging.error(f"Failed to write window to {filepath}: {e}")
+        raise
 
     return filepath
 

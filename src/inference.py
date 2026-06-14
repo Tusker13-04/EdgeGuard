@@ -65,6 +65,8 @@ class DiagnosticEngine:
 
     def __init__(self, onnx_path: Optional[str] = None):
         self._session = None
+        self._rms_threshold = float(os.getenv("EG_RMS_THRESHOLD", "150.0"))
+        
         if onnx_path and os.path.exists(onnx_path):
             try:
                 import onnxruntime as ort
@@ -74,7 +76,8 @@ class DiagnosticEngine:
                 )
                 logger.info("DiagnosticEngine: ONNX model loaded from %s", onnx_path)
             except Exception as exc:
-                logger.warning("ONNX load failed (%s) — using RMS fallback", exc)
+                logger.critical("ONNX load failed for %s. Cannot proceed safely.", onnx_path)
+                raise
         else:
             logger.warning("DiagnosticEngine: no ONNX model found — using RMS fallback")
 
@@ -107,16 +110,20 @@ class DiagnosticEngine:
         inp_name = self._session.get_inputs()[0].name
         out_name = self._session.get_outputs()[0].name
         accel_only = samples[:, :3]
-        flat = accel_only.flatten().astype(np.float32).reshape(1, -1)
-        logits = self._session.run([out_name], {inp_name: flat})[0]
-        e = np.exp(logits - logits.max())
+        flat = np.ascontiguousarray(accel_only, dtype=np.float32).reshape(1, -1)
+        try:
+            logits = self._session.run([out_name], {inp_name: flat})[0]
+        except Exception as exc:
+            logger.error("ONNX inference failed: %s", exc)
+            return self._rms_fallback(samples)
+            
+        logits = logits - logits.max()
+        e = np.exp(logits)
         return (e / e.sum()).flatten()
 
-    @staticmethod
-    def _rms_fallback(samples: np.ndarray) -> np.ndarray:
+    def _rms_fallback(self, samples: np.ndarray) -> np.ndarray:
         # Issue 5 fix: Compute RMS only over x, y, z columns
         rms = float(np.sqrt(np.mean(samples[:, :3] ** 2)))
-        threshold = float(os.getenv("EG_RMS_THRESHOLD", "150.0"))
-        if rms > threshold:
+        if rms > self._rms_threshold:
             return np.array([0.05, 0.85, 0.05, 0.05], dtype=np.float32)
         return np.array([0.90, 0.04, 0.03, 0.03], dtype=np.float32)
