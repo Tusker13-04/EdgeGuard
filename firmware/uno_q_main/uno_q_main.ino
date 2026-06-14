@@ -165,11 +165,9 @@ void loop() {
           g_reflex_pin_high_ts = now;
           g_reflex_pin_active = true;
 
-          std::vector<uint8_t> payload((uint8_t*)batch, (uint8_t*)batch + sizeof(batch));
-          Bridge.notify("anomaly_trigger", payload);
+          Bridge.notify("anomaly_trigger", batch[0].accel_x, batch[0].accel_y, batch[0].accel_z);
         } else {
-          std::vector<uint8_t> payload((uint8_t*)batch, (uint8_t*)batch + sizeof(batch));
-          Bridge.notify("sensor_batch", payload);
+          Bridge.notify("sensor_point", batch[0].accel_x, batch[0].accel_y, batch[0].accel_z);
         }
       }
     }
