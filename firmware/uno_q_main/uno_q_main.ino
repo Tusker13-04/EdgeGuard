@@ -159,15 +159,19 @@ void loop() {
         bool anomaly_detected = (rms_mg > g_reflex_threshold);
 
         static uint32_t last_alert_ts = 0;
+        float tx = batch[0].accel_x;
+        float ty = batch[0].accel_y;
+        float tz = batch[0].accel_z;
+
         if (anomaly_detected && (now - last_alert_ts >= 1000)) {
           last_alert_ts = now;
           digitalWrite(REFLEX_ALERT_PIN, HIGH);
           g_reflex_pin_high_ts = now;
           g_reflex_pin_active = true;
 
-          Bridge.notify("anomaly_trigger", batch[0].accel_x, batch[0].accel_y, batch[0].accel_z);
+          Bridge.notify("anomaly_trigger", tx, ty, tz);
         } else {
-          Bridge.notify("sensor_point", batch[0].accel_x, batch[0].accel_y, batch[0].accel_z);
+          Bridge.notify("sensor_point", tx, ty, tz);
         }
       }
     }
