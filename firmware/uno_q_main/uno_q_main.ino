@@ -13,7 +13,7 @@
 
 #include <Arduino.h>
 #include <zephyr/kernel.h>
-#include <LIS3DH.h>
+#include <SparkFunLIS3DH.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
 #include <ArduinoBridge.h>
