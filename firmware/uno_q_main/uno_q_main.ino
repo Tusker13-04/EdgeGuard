@@ -23,12 +23,12 @@ struct __attribute__((packed)) SensorPayload {
 };
 static_assert(sizeof(SensorPayload) == 24, "Payload size mismatch");
 
-Adafruit_LIS3DH imu = Adafruit_LIS3DH();
+Adafruit_LIS3DH imu = Adafruit_LIS3DH(&Wire1);
 OneWire oneWire(ONE_WIRE_PIN);
 DallasTemperature tempSensor(&oneWire);
 
 // Globals
-volatile float last_temp_c = 25.0f;
+volatile float last_temp_c = -99.0f;
 uint32_t seq_counter = 0;
 bool g_sensor_connected = false;
 
@@ -83,20 +83,19 @@ void setup() {
   pinMode(REFLEX_ALERT_PIN, OUTPUT);
   digitalWrite(REFLEX_ALERT_PIN, LOW);
 
-  // Bypass I2C hardware completely to prevent STM32 I2C hang when sensor is physically disconnected
-  // Wire.begin();
-  // if (imu.begin(0x18)) {
-  //   g_sensor_connected = true;
-  // } else {
-  //   g_sensor_connected = false;
-  // }
-  g_sensor_connected = false;
+  Wire1.begin();
+  if (imu.begin(0x18)) {
+    g_sensor_connected = true;
+  } else {
+    g_sensor_connected = false;
+  }
 
   Bridge.begin();
   Bridge.provide("remote_tune", onRemoteTune);
   Bridge.provide("heartbeat", onHeartbeat);
   Bridge.provide("sampling_mode", onSamplingMode);
 
+  pinMode(4, INPUT_PULLUP);
   tempSensor.begin();
   tempSensor.setResolution(12);
   tempSensor.setWaitForConversion(false);
@@ -118,61 +117,57 @@ void loop() {
   if (now - last_sample_ms >= 10) {
     last_sample_ms = now;
 
-    if (batch_idx < FIFO_WATERMARK) {
-      batch[batch_idx].timestamp_us = micros();
-      batch[batch_idx].sequence_id  = seq_counter++;
-      
-      if (g_sensor_connected) {
-        sensors_event_t event;
-        imu.getEvent(&event);
-        batch[batch_idx].accel_x      = event.acceleration.x;
-        batch[batch_idx].accel_y      = event.acceleration.y;
-        batch[batch_idx].accel_z      = event.acceleration.z;
-      } else {
-        // Generate dummy sine-wave data for testing when hardware is disconnected
-        float t_sec = now / 1000.0f;
-        batch[batch_idx].accel_x      = sin(t_sec * 2.0f * PI) * 5.0f;
-        batch[batch_idx].accel_y      = cos(t_sec * 2.0f * PI) * 5.0f;
-        batch[batch_idx].accel_z      = 9.81f + sin(t_sec * 1.0f * PI) * 2.0f;
-      }
-      
-      batch[batch_idx].board_temp   = last_temp_c;
-      batch_idx++;
+    float x, y, z;
+    if (g_sensor_connected) {
+      sensors_event_t event;
+      imu.getEvent(&event);
+      x = event.acceleration.x;
+      y = event.acceleration.y;
+      z = event.acceleration.z;
+    } else {
+      float t_sec = now / 1000.0f;
+      x = sin(t_sec * 2.0f * PI) * 5.0f;
+      y = cos(t_sec * 2.0f * PI) * 5.0f;
+      z = 9.81f + sin(t_sec * 1.0f * PI) * 2.0f;
     }
 
+    uint32_t ts = micros();
+    uint32_t seq = seq_counter++;
+
+    batch[batch_idx].timestamp_us = ts;
+    batch[batch_idx].sequence_id = seq;
+    batch[batch_idx].accel_x = x;
+    batch[batch_idx].accel_y = y;
+    batch[batch_idx].accel_z = z;
+    batch[batch_idx].board_temp = last_temp_c;
+
+    // Stream the point IMMEDIATELY
+    Bridge.notify("sensor_point", ts, seq, x, y, z, last_temp_c);
+
+    batch_idx++;
+
+    // 2. Anomaly evaluation (every FIFO_WATERMARK samples)
     if (batch_idx >= FIFO_WATERMARK) {
       batch_idx = 0;
-      
-      // Adaptive Sampling throttling
-      static uint32_t last_batch_sent_ts = 0;
-      if (g_sampling_interval_ms == 0 || (now - last_batch_sent_ts >= (uint32_t)g_sampling_interval_ms)) {
-        last_batch_sent_ts = now;
 
-        // RMS fallback anomaly detection
-        float rms_sq = 0.0f;
-        for (int i = 0; i < FIFO_WATERMARK; i++) {
-          rms_sq += batch[i].accel_x * batch[i].accel_x + 
-                    batch[i].accel_y * batch[i].accel_y + 
-                    batch[i].accel_z * batch[i].accel_z;
-        }
-        float rms_mg = sqrt(rms_sq / (FIFO_WATERMARK * 3.0f)) * 1000.0f;
-        bool anomaly_detected = (rms_mg > g_reflex_threshold);
+      // RMS fallback anomaly detection
+      float rms_sq = 0.0f;
+      for (int i = 0; i < FIFO_WATERMARK; i++) {
+        rms_sq += batch[i].accel_x * batch[i].accel_x + 
+                  batch[i].accel_y * batch[i].accel_y + 
+                  batch[i].accel_z * batch[i].accel_z;
+      }
+      float rms_mg = sqrt(rms_sq / (FIFO_WATERMARK * 3.0f)) * 1000.0f;
+      bool anomaly_detected = (rms_mg > g_reflex_threshold);
 
-        static uint32_t last_alert_ts = 0;
-        float tx = batch[0].accel_x;
-        float ty = batch[0].accel_y;
-        float tz = batch[0].accel_z;
+      static uint32_t last_alert_ts = 0;
+      if (anomaly_detected && (now - last_alert_ts >= 1000)) {
+        last_alert_ts = now;
+        digitalWrite(REFLEX_ALERT_PIN, HIGH);
+        g_reflex_pin_high_ts = now;
+        g_reflex_pin_active = true;
 
-        if (anomaly_detected && (now - last_alert_ts >= 1000)) {
-          last_alert_ts = now;
-          digitalWrite(REFLEX_ALERT_PIN, HIGH);
-          g_reflex_pin_high_ts = now;
-          g_reflex_pin_active = true;
-
-          Bridge.notify("anomaly_trigger", tx, ty, tz);
-        } else {
-          Bridge.notify("sensor_point", tx, ty, tz);
-        }
+        Bridge.notify("anomaly_trigger", rms_mg);
       }
     }
   }
@@ -194,7 +189,8 @@ void loop() {
   // 4. Low-frequency temperature reading
   if (temp_req_pending && (now - temp_req_ms >= DS18B20_CONV_MS)) {
     float t = tempSensor.getTempCByIndex(0);
-    if (t > -100.0f) last_temp_c = t;
+    Bridge.notify("debug", String("temp read: ") + String(t));
+    last_temp_c = t;
     temp_req_pending = false;
     tempSensor.requestTemperatures();
     temp_req_pending = true;

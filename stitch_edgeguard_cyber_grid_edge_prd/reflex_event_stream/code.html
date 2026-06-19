@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>EdgeGuard - Reflex Event Stream</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "primary": "#0df287",
+              "background-light": "#f5f8f7",
+              "background-dark": "#10221a",
+              "surface": "rgba(26, 26, 36, 0.85)",
+              "muted": "#4A4A5E",
+              "warning": "#FFB000",
+              "critical": "#FF3B30",
+            },
+            fontFamily: {
+              "display": ["JetBrains Mono", "monospace"],
+              "body": ["Inter", "sans-serif"]
+            },
+            borderRadius: {"DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem"},
+          },
+        },
+      }
+    </script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+        .cyber-grid {
+            background-color: #0F0F12;
+            background-image:
+                linear-gradient(to right, rgba(74, 74, 94, 0.15) 1px, transparent 1px),
+                linear-gradient(to bottom, rgba(74, 74, 94, 0.15) 1px, transparent 1px);
+            background-size: 40px 40px;
+        }
+        
+        /* Custom Scrollbar */
+        .terminal-scroll::-webkit-scrollbar {
+            width: 4px;
+        }
+        .terminal-scroll::-webkit-scrollbar-track {
+            background: #0F0F12;
+            border-left: 1px solid rgba(74, 74, 94, 0.2);
+        }
+        .terminal-scroll::-webkit-scrollbar-thumb {
+            background: #4A4A5E;
+            border-radius: 2px;
+        }
+        .terminal-scroll::-webkit-scrollbar-thumb:hover {
+            background: #0df287;
+        }
+
+        /* Syntax Colors */
+        .j-key { color: #E2E2E8; }
+        .j-str { color: #FFB000; }
+        .j-num { color: #0df287; }
+        .j-pun { color: #4A4A5E; }
+        
+        .cursor-blink {
+            animation: blink 1s step-end infinite;
+        }
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0; }
+        }
+
+        .tooltip-trigger:hover .tooltip-content {
+            display: block;
+        }
+    </style>
+</head>
+<body class="font-body text-[#E2E2E8] m-0 p-0 h-screen overflow-hidden">
+<!-- Shared Component Base -->
+<div class="relative flex h-screen w-full flex-col cyber-grid dark group/design-root overflow-hidden">
+<div class="layout-container flex h-full grow flex-col">
+<div class="px-4 md:px-10 flex flex-1 justify-center py-5 overflow-hidden">
+<div class="layout-content-container flex flex-col w-full max-w-[1440px] flex-1 overflow-hidden backdrop-blur-[12px] bg-surface border border-muted/50 rounded-lg shadow-[inset_0_0_20px_rgba(255,255,255,0.03)]">
+<!-- SHARED HEADER (Untouched) -->
+<header class="flex items-center justify-between whitespace-nowrap border-b border-solid border-b-[#224937] px-10 py-3 bg-[#10231a]">
+<div class="flex items-center gap-4 text-white">
+<div class="size-4">
+<svg fill="none" viewbox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+<path d="M42.4379 44C42.4379 44 36.0744 33.9038 41.1692 24C46.8624 12.9336 42.2078 4 42.2078 4L7.01134 4C7.01134 4 11.6577 12.932 5.96912 23.9969C0.876273 33.9029 7.27094 44 7.27094 44L42.4379 44Z" fill="currentColor"></path>
+</svg>
+</div>
+<h2 class="text-white text-lg font-bold leading-tight tracking-[-0.015em] font-display uppercase tracking-[2px]">REFLEX // AUDIT STREAM</h2>
+</div>
+<div class="flex gap-2 font-display">
+<button class="flex min-w-[84px] max-w-[480px] cursor-pointer items-center justify-center overflow-hidden rounded h-10 px-4 bg-[#0df287] text-[#10231a] text-sm font-bold leading-normal tracking-[0.015em] transition-opacity hover:opacity-80">
+<span class="truncate">Auto-Scroll Toggle</span>
+</button>
+<button class="flex min-w-[84px] max-w-[480px] cursor-pointer items-center justify-center overflow-hidden rounded h-10 px-4 bg-[#224937] text-white text-sm font-bold leading-normal tracking-[0.015em]">
+<span class="truncate">STREAM PAUSED <span class="cursor-blink">_</span></span>
+</button>
+</div>
+</header>
+<!-- SHARED FILTERS (Untouched styling from snippet) -->
+<div class="flex flex-wrap gap-3 p-4 border-b border-muted/30 bg-[#0F0F12]/80 font-display">
+<label class="text-sm font-medium leading-normal flex items-center justify-center rounded border border-[#31684e] px-4 h-11 text-white has-[:checked]:border-[3px] has-[:checked]:px-3.5 has-[:checked]:border-[#0df287] relative cursor-pointer hover:bg-white/5 transition-colors">
+                        [ALL]
+                        <input checked="" class="invisible absolute" name="b26bda25-fbcc-4771-9477-781962b70074" type="radio"/>
+</label>
+<label class="text-sm font-medium leading-normal flex items-center justify-center rounded border border-[#31684e] px-4 h-11 text-white has-[:checked]:border-[3px] has-[:checked]:px-3.5 has-[:checked]:border-[#0df287] relative cursor-pointer hover:bg-white/5 transition-colors">
+                        [INFO]
+                        <input class="invisible absolute" name="b26bda25-fbcc-4771-9477-781962b70074" type="radio"/>
+</label>
+<label class="text-sm font-medium leading-normal flex items-center justify-center rounded border border-[#31684e] px-4 h-11 text-white has-[:checked]:border-[3px] has-[:checked]:px-3.5 has-[:checked]:border-[#0df287] relative cursor-pointer hover:bg-white/5 transition-colors">
+                        [WARN]
+                        <input class="invisible absolute" name="b26bda25-fbcc-4771-9477-781962b70074" type="radio"/>
+</label>
+<label class="text-sm font-medium leading-normal flex items-center justify-center rounded border border-[#31684e] px-4 h-11 text-white has-[:checked]:border-[3px] has-[:checked]:px-3.5 has-[:checked]:border-[#0df287] relative cursor-pointer hover:bg-white/5 transition-colors">
+                        [CRIT]
+                        <input class="invisible absolute" name="b26bda25-fbcc-4771-9477-781962b70074" type="radio"/>
+</label>
+</div>
+<!-- TERMINAL LOG BODY -->
+<div class="flex-1 overflow-y-auto terminal-scroll p-4 bg-[#0F0F12]/90 font-display text-[14px] leading-loose space-y-1">
+<!-- Single Line Log (INFO) -->
+<div class="flex gap-4 py-1 px-2 border-l-2 border-transparent hover:border-primary hover:bg-white/5 cursor-pointer transition-all group">
+<span class="text-muted shrink-0 select-none">[14:02:43.998]</span>
+<span class="break-all text-[#E2E2E8]">
+<span class="j-pun">{</span>
+<span class="j-key">"node"</span><span class="j-pun">:</span> <span class="j-str">"cooling_pump_2"</span><span class="j-pun">,</span>
+<span class="j-key">"temp_c"</span><span class="j-pun">:</span> <span class="j-num">38.2</span><span class="j-pun">,</span>
+<span class="j-key">"status"</span><span class="j-pun">:</span> <span class="j-str text-primary">"INFO"</span>
+<span class="j-pun">}</span>
+</span>
+</div>
+<!-- Single Line Log (WARN) with Tooltip -->
+<div class="flex gap-4 py-1 px-2 border-l-2 border-warning/50 hover:border-warning hover:bg-warning/10 cursor-pointer transition-all tooltip-trigger relative">
+<span class="text-muted shrink-0 select-none">[14:02:44.001]</span>
+<span class="break-all text-[#E2E2E8]">
+<span class="j-pun">{</span>
+<span class="j-key">"node"</span><span class="j-pun">:</span> <span class="j-str">"bearing_fw"</span><span class="j-pun">,</span>
+<span class="j-key">"temp_c"</span><span class="j-pun">:</span> <span class="j-num">88.4</span><span class="j-pun">,</span>
+<span class="j-key">"status"</span><span class="j-pun">:</span> <span class="j-str text-warning underline decoration-warning/50 decoration-dashed underline-offset-4">"WARN"</span>
+<span class="j-pun">}</span>
+</span>
+<!-- Tooltip -->
+<div class="tooltip-content hidden absolute z-10 bottom-full left-48 mb-2 w-64 bg-surface border border-warning/50 rounded shadow-lg p-3 text-xs font-body backdrop-blur-md">
+<div class="font-bold text-warning mb-1 uppercase font-display border-b border-warning/20 pb-1">Rule Triggered: TEMP_SPIKE_L1</div>
+<div class="text-[#E2E2E8]">Bearing FW operating temperature exceeded 85°C threshold for &gt;500ms.</div>
+</div>
+</div>
+<!-- Expanded Log (CRIT) -->
+<div class="flex gap-4 py-2 px-2 border-l-2 border-critical bg-critical/5 cursor-pointer transition-all">
+<span class="text-muted shrink-0 select-none">[14:02:44.015]</span>
+<div class="flex-1 text-[#E2E2E8]">
+<span class="j-pun">{</span><br/>
+<div class="pl-6 space-y-1 border-l border-muted/30 ml-2">
+<div><span class="j-key">"event_id"</span><span class="j-pun">:</span> <span class="j-str">"evt_8922x"</span><span class="j-pun">,</span></div>
+<div><span class="j-key">"node"</span><span class="j-pun">:</span> <span class="j-str">"rotor_assembly_main"</span><span class="j-pun">,</span></div>
+<div><span class="j-key">"status"</span><span class="j-pun">:</span> <span class="j-str text-critical font-bold">"CRIT"</span><span class="j-pun">,</span></div>
+<div><span class="j-key">"telemetry"</span><span class="j-pun">:</span> <span class="j-pun">{</span></div>
+<div class="pl-6 space-y-1 border-l border-muted/30 ml-2">
+<div><span class="j-key">"vibration_x_g"</span><span class="j-pun">:</span> <span class="j-num">12.4</span><span class="j-pun">,</span></div>
+<div><span class="j-key">"vibration_y_g"</span><span class="j-pun">:</span> <span class="j-num">14.1</span><span class="j-pun">,</span></div>
+<div><span class="j-key">"acoustic_db"</span><span class="j-pun">:</span> <span class="j-num">112.8</span><span class="j-pun">,</span></div>
+<div><span class="j-key">"rpm_variance"</span><span class="j-pun">:</span> <span class="j-num">4.2</span></div>
+</div>
+<div><span class="j-pun">},</span></div>
+<div><span class="j-key">"ai_confidence"</span><span class="j-pun">:</span> <span class="j-num">0.98</span><span class="j-pun">,</span></div>
+<div><span class="j-key">"action_taken"</span><span class="j-pun">:</span> <span class="j-str text-critical">"EMERGENCY_SHUTDOWN_INITIATED"</span></div>
+</div>
+<span class="j-pun">}</span>
+</div>
+</div>
+<!-- Single Line Log (INFO) -->
+<div class="flex gap-4 py-1 px-2 border-l-2 border-transparent hover:border-primary hover:bg-white/5 cursor-pointer transition-all">
+<span class="text-muted shrink-0 select-none">[14:02:44.022]</span>
+<span class="break-all text-[#E2E2E8]">
+<span class="j-pun">{</span>
+<span class="j-key">"node"</span><span class="j-pun">:</span> <span class="j-str">"system_bus"</span><span class="j-pun">,</span>
+<span class="j-key">"latency_ms"</span><span class="j-pun">:</span> <span class="j-num">0.4</span><span class="j-pun">,</span>
+<span class="j-key">"status"</span><span class="j-pun">:</span> <span class="j-str text-primary">"INFO"</span>
+<span class="j-pun">}</span>
+</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</body></html>

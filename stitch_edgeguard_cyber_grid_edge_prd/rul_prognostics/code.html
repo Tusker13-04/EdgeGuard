@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>EdgeGuard // RUL Prognostics</title>
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<!-- Google Fonts -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&amp;family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Theme Configuration -->
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#0df287",
+                        "background-light": "#f5f8f7",
+                        "background-dark": "#10221a",
+                        // PRD explicit colors for cyber-grid aesthetic
+                        "eg-surface": "rgba(26, 26, 36, 0.85)",
+                        "eg-muted": "#4A4A5E",
+                        "eg-warning": "#FFB000",
+                        "eg-critical": "#FF3B30",
+                        "eg-text": "#E2E2E8"
+                    },
+                    fontFamily: {
+                        "display": ["JetBrains Mono", "monospace"],
+                        "body": ["JetBrains Mono", "monospace"] // Enforcing technical terminal look everywhere
+                    },
+                    borderRadius: {
+                        "DEFAULT": "0.125rem", // 2px razor-sharp edges
+                        "sm": "0.125rem",
+                        "md": "0.125rem",
+                        "lg": "0.125rem",
+                        "xl": "0.125rem",
+                        "2xl": "0.125rem",
+                        "3xl": "0.125rem",
+                        "full": "0.125rem"
+                    },
+                    boxShadow: {
+                        "glass-inner": "inset 0 0 0 1px rgba(255, 255, 255, 0.05)",
+                        "neon-glow": "0 0 20px rgba(13, 242, 135, 0.2)"
+                    },
+                    backgroundImage: {
+                        "grid-pattern": "linear-gradient(to right, rgba(74, 74, 94, 0.2) 1px, transparent 1px), linear-gradient(to bottom, rgba(74, 74, 94, 0.2) 1px, transparent 1px)"
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        body {
+            background-color: #0F0F12; /* PRD Background */
+            color: #E2E2E8; /* PRD Text */
+            background-image: var(--tw-gradient-stops);
+        }
+        
+        /* The 40px subtle grid pattern */
+        .bg-grid {
+            background-size: 40px 40px;
+            background-image: 
+                linear-gradient(to right, rgba(74, 74, 94, 0.15) 1px, transparent 1px),
+                linear-gradient(to bottom, rgba(74, 74, 94, 0.15) 1px, transparent 1px);
+        }
+
+        .glass-panel {
+            background-color: rgba(26, 26, 36, 0.85); /* Surface */
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(74, 74, 94, 0.5); /* Muted border */
+            box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05); /* Inner white shadow 5% */
+        }
+        
+        .timer-glow {
+            box-shadow: 0 0 20px rgba(13, 242, 135, 0.2);
+        }
+
+        /* SVG Chart Animations */
+        @keyframes drawLine {
+            to { stroke-dashoffset: 0; }
+        }
+        .trendline {
+            stroke-dasharray: 10, 5;
+            animation: drawLine 2s linear infinite;
+        }
+        
+        .pulse-critical {
+            animation: pulse-red 2s infinite;
+        }
+        @keyframes pulse-red {
+            0% { opacity: 0.8; box-shadow: 0 0 0 0 rgba(255, 59, 48, 0.4); }
+            70% { opacity: 1; box-shadow: 0 0 0 10px rgba(255, 59, 48, 0); }
+            100% { opacity: 0.8; box-shadow: 0 0 0 0 rgba(255, 59, 48, 0); }
+        }
+    </style>
+</head>
+<body class="font-display antialiased min-h-screen relative bg-grid overflow-x-hidden selection:bg-primary selection:text-black">
+<!-- Background Animation Layer -->
+<webgl-shader class="absolute inset-0 w-full h-full pointer-events-none opacity-20" src="{{DATA:ANIMATION:ANIMATION_2}}"></webgl-shader>
+<!-- TopNavBar Shared Component (Retained based on relevance rules - this is a global view/destination screen, not a focused process) -->
+<div class="relative flex h-auto w-full flex-col bg-transparent group/design-root overflow-x-hidden">
+<div class="layout-container flex h-full grow flex-col z-10">
+<div class="px-6 md:px-12 flex flex-1 justify-center py-5">
+<div class="layout-content-container flex flex-col w-full max-w-[1440px] flex-1 gap-6">
+<!-- Header -->
+<header class="flex items-center justify-between whitespace-nowrap border-b border-solid border-eg-muted/50 pb-4">
+<div class="flex items-center gap-4 text-white">
+<div class="size-6 text-primary">
+<span class="material-symbols-outlined" style="font-size: 24px;">memory</span>
+</div>
+<h2 class="text-white text-lg font-bold leading-tight tracking-[2px] uppercase">
+                                EDGEGUARD // COGNITIVE PREDICTIVE MAINTENANCE
+                            </h2>
+</div>
+<div class="flex items-center gap-6">
+<div class="flex items-center gap-2 text-primary text-sm font-semibold tracking-wider">
+<span class="relative flex h-2 w-2">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
+<span class="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
+</span>
+                                REFLEX BUS &lt;1ms
+                            </div>
+<div class="glass-panel px-3 py-1 flex items-center gap-2 cursor-pointer hover:bg-eg-muted/20 transition-colors">
+<span class="material-symbols-outlined text-eg-text text-sm">settings_input_component</span>
+<span class="text-xs uppercase tracking-wider">Wireframe Mode</span>
+</div>
+</div>
+</header>
+<div class="flex flex-wrap justify-between items-end gap-3 px-2">
+<div>
+<p class="text-primary text-sm uppercase tracking-[2px] mb-1 opacity-80">Module Diagnostics</p>
+<p class="text-white text-3xl font-black leading-tight tracking-[-0.033em] uppercase">RUL Prognostics</p>
+</div>
+<!-- Hidden Error State Example (Uncomment to show) -->
+<!-- <div class="glass-panel border-eg-warning/50 text-eg-warning px-4 py-2 flex items-center gap-2">
+                            <span class="material-symbols-outlined text-sm">warning</span>
+                            <span class="text-xs uppercase tracking-wider">PROGNOSTIC ENGINE OFFLINE</span>
+                        </div> -->
+</div>
+<!-- Main Content Grid -->
+<main class="grid grid-cols-1 lg:grid-cols-1 gap-8 mt-2 pb-12">
+<!-- Top Half: Timer & Regression Chart -->
+<div class="flex flex-col gap-6">
+<!-- Massive Countdown Timer -->
+<div class="glass-panel timer-glow p-8 flex flex-col items-center justify-center text-center relative overflow-hidden group">
+<div class="absolute inset-0 bg-gradient-to-b from-primary/5 to-transparent pointer-events-none"></div>
+<h3 class="text-eg-muted text-sm font-bold tracking-[4px] uppercase mb-4 relative z-10">Predicted Critical Failure In</h3>
+<div class="text-5xl md:text-[64px] font-black text-primary tracking-tight leading-none drop-shadow-[0_0_15px_rgba(13,242,135,0.5)] relative z-10">
+                                    T-MINUS 14d 08h 22m
+                                </div>
+<div class="mt-4 flex items-center gap-2 text-xs text-eg-text/60 relative z-10">
+<span class="material-symbols-outlined text-[14px]">track_changes</span>
+<span>Confidence Interval: 94.2%</span>
+</div>
+</div>
+<!-- Regression Chart Panel -->
+<div class="glass-panel p-6 flex flex-col h-[400px] relative">
+<div class="flex justify-between items-center mb-6">
+<h3 class="text-white text-base font-bold tracking-[2px] uppercase flex items-center gap-2">
+<span class="material-symbols-outlined text-primary text-sm">timeline</span>
+                                        Degradation Trajectory
+                                    </h3>
+<div class="flex gap-4 text-xs">
+<div class="flex items-center gap-1"><div class="w-2 h-2 bg-primary"></div><span>Historical</span></div>
+<div class="flex items-center gap-1"><div class="w-2 h-2 border border-eg-muted border-dashed bg-transparent"></div><span>Projected</span></div>
+<div class="flex items-center gap-1"><div class="w-2 h-2 bg-eg-critical pulse-critical"></div><span>Threshold (85%)</span></div>
+</div>
+</div>
+<!-- Chart Area Simulation -->
+<div class="flex-1 relative w-full border-l border-b border-eg-muted/50 pb-6 pl-6 group">
+<!-- Y Axis Labels -->
+<div class="absolute left-0 top-0 bottom-6 w-6 flex flex-col justify-between text-[10px] text-eg-muted items-end pr-2 py-2">
+<span>100</span>
+<span>95</span>
+<span>90</span>
+<span class="text-eg-critical font-bold">85</span>
+<span>80</span>
+</div>
+<!-- X Axis Labels -->
+<div class="absolute left-6 right-0 bottom-0 h-6 flex justify-between text-[10px] text-eg-muted items-end px-2">
+<span>-30d</span>
+<span>-15d</span>
+<span>TODAY</span>
+<span>+15d</span>
+</div>
+<!-- Grid Lines internal -->
+<div class="absolute inset-0 left-6 bottom-6 border-t border-r border-eg-muted/20 flex flex-col justify-between pointer-events-none">
+<div class="w-full border-b border-eg-muted/10 h-0"></div>
+<div class="w-full border-b border-eg-muted/10 h-0"></div>
+<div class="w-full border-b border-eg-muted/10 h-0"></div>
+<!-- Critical Threshold Line Y=85 -->
+<div class="w-full border-b-2 border-eg-critical border-dashed h-0 shadow-[0_0_8px_rgba(255,59,48,0.5)] relative">
+<span class="absolute right-2 -top-5 text-[10px] text-eg-critical tracking-wider font-bold bg-background-dark/80 px-1">CRIT_THRESHOLD</span>
+</div>
+<div class="w-full border-b border-eg-muted/10 h-0"></div>
+</div>
+<!-- SVG Chart Elements -->
+<svg class="w-full h-full absolute inset-0 left-6 bottom-6" preserveaspectratio="none" viewbox="0 0 1000 300">
+<!-- Historical Scatter Points -->
+<circle class="hover:r-5 hover:fill-white cursor-crosshair transition-all" cx="50" cy="40" fill="#0df287" r="3"></circle>
+<circle class="hover:r-5 hover:fill-white cursor-crosshair transition-all" cx="150" cy="55" fill="#0df287" r="3"></circle>
+<circle class="hover:r-5 hover:fill-white cursor-crosshair transition-all" cx="250" cy="80" fill="#0df287" r="3"></circle>
+<circle class="hover:r-5 hover:fill-white cursor-crosshair transition-all" cx="350" cy="90" fill="#0df287" r="3"></circle>
+<circle class="hover:r-5 hover:fill-white cursor-crosshair transition-all" cx="450" cy="120" fill="#0df287" r="3"></circle>
+<circle class="animate-pulse shadow-[0_0_10px_#0df287]" cx="500" cy="140" fill="#0df287" r="4"></circle> <!-- Today -->
+<!-- Projected Trendline -->
+<path class="trendline" d="M500 140 L850 225" fill="none" stroke="#4A4A5E" stroke-dasharray="8 4" stroke-width="2"></path>
+<!-- Intersection Point -->
+<circle class="pulse-critical" cx="850" cy="225" fill="transparent" r="6" stroke="#FF3B30" stroke-width="2"></circle>
+</svg>
+<!-- Hover Tooltip (Simulated) -->
+<div class="absolute top-[100px] left-[400px] glass-panel p-2 text-[10px] hidden group-hover:block z-20 pointer-events-none">
+<div class="text-eg-muted mb-1">T-4 Days</div>
+<div class="text-white flex justify-between gap-4"><span>Health:</span> <span class="text-primary font-bold">92.4</span></div>
+</div>
+</div>
+</div>
+</div>
+<!-- Bottom Half: Contributing Factors -->
+<div class="glass-panel p-6 flex flex-col">
+<h3 class="text-white text-base font-bold tracking-[2px] uppercase flex items-center gap-2 mb-6">
+<span class="material-symbols-outlined text-primary text-sm">bar_chart</span>
+                                Degradation Drivers
+                            </h3>
+<div class="flex flex-col gap-4">
+<!-- Factor 1 -->
+<div class="flex items-center gap-4 group cursor-pointer hover:bg-eg-muted/10 p-2 -mx-2 transition-colors">
+<div class="w-48 text-sm text-eg-text flex justify-between items-center">
+<span>Bearing Temp (Fw)</span>
+<span class="text-eg-warning font-bold">42%</span>
+</div>
+<div class="flex-1 h-2 bg-background-dark relative overflow-hidden rounded-sm border border-eg-muted/30">
+<div class="absolute top-0 left-0 h-full bg-eg-warning w-[42%] group-hover:bg-primary transition-colors"></div>
+</div>
+</div>
+<!-- Factor 2 -->
+<div class="flex items-center gap-4 group cursor-pointer hover:bg-eg-muted/10 p-2 -mx-2 transition-colors">
+<div class="w-48 text-sm text-eg-text flex justify-between items-center">
+<span>Axial Vibration (1X)</span>
+<span class="text-eg-text font-bold">28%</span>
+</div>
+<div class="flex-1 h-2 bg-background-dark relative overflow-hidden rounded-sm border border-eg-muted/30">
+<div class="absolute top-0 left-0 h-full bg-primary opacity-80 w-[28%] group-hover:opacity-100 transition-opacity"></div>
+</div>
+</div>
+<!-- Factor 3 -->
+<div class="flex items-center gap-4 group cursor-pointer hover:bg-eg-muted/10 p-2 -mx-2 transition-colors">
+<div class="w-48 text-sm text-eg-text flex justify-between items-center">
+<span>Lube Oil Viscosity</span>
+<span class="text-eg-text font-bold">15%</span>
+</div>
+<div class="flex-1 h-2 bg-background-dark relative overflow-hidden rounded-sm border border-eg-muted/30">
+<div class="absolute top-0 left-0 h-full bg-primary opacity-60 w-[15%] group-hover:opacity-100 transition-opacity"></div>
+</div>
+</div>
+<!-- Factor 4 -->
+<div class="flex items-center gap-4 group cursor-pointer hover:bg-eg-muted/10 p-2 -mx-2 transition-colors">
+<div class="w-48 text-sm text-eg-text flex justify-between items-center">
+<span>Acoustic Emission</span>
+<span class="text-eg-text font-bold">10%</span>
+</div>
+<div class="flex-1 h-2 bg-background-dark relative overflow-hidden rounded-sm border border-eg-muted/30">
+<div class="absolute top-0 left-0 h-full bg-primary opacity-40 w-[10%] group-hover:opacity-100 transition-opacity"></div>
+</div>
+</div>
+<!-- Factor 5 -->
+<div class="flex items-center gap-4 group cursor-pointer hover:bg-eg-muted/10 p-2 -mx-2 transition-colors">
+<div class="w-48 text-sm text-eg-muted flex justify-between items-center">
+<span>Motor Current Sig</span>
+<span class="text-eg-muted font-bold">5%</span>
+</div>
+<div class="flex-1 h-2 bg-background-dark relative overflow-hidden rounded-sm border border-eg-muted/30">
+<div class="absolute top-0 left-0 h-full bg-eg-muted opacity-40 w-[5%] group-hover:bg-primary transition-colors"></div>
+</div>
+</div>
+</div>
+</div>
+</main>
+</div>
+</div>
+</div>
+</div>
+</body></html>

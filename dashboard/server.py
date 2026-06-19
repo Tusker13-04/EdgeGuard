@@ -309,3 +309,10 @@ async def websocket_endpoint(ws: WebSocket) -> None:
 async def index() -> HTMLResponse:
     html_path = Path(__file__).parent / "edgeguard-dashboard.html"
     return HTMLResponse(content=html_path.read_text(encoding="utf-8"))
+
+
+@app.get("/command-center", response_class=HTMLResponse)
+async def command_center() -> HTMLResponse:
+    """Serve the new EdgeGuard Command Center dashboard."""
+    html_path = Path(__file__).parent / "edgeguard-command-center.html"
+    return HTMLResponse(content=html_path.read_text(encoding="utf-8"))

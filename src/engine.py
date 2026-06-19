@@ -40,6 +40,9 @@ except Exception as e:
 TUNE_PROB_THRESHOLD = 0.70
 TUNE_WINDOW         = 5
 TUNE_NEW_THRESHOLD  = 1500   # mg — tighter than the default 2000 mg
+NOISE_FLOOR_COEFF   = 1.5
+MIN_SAFE_THRESHOLD  = 1000   # mg floor (1.0 g)
+
 
 
 class EdgeGuardEngine:
@@ -178,11 +181,8 @@ class EdgeGuardEngine:
         if all(p >= TUNE_PROB_THRESHOLD for p in self._recent_probs):
             now = time.time()
             if now - self._tune_dispatched_at > 60.0:
-                # ── Smart Threshold Tuning ─────────────────────────────────
                 # Calculate optimal threshold based on current noise/probability
                 #Higher prob means we need a tighter (lower) threshold on the MCU
-                NOISE_FLOOR_COEFF = 1.5
-                MIN_SAFE_THRESHOLD = 1000 # mg floor (1.0 g)
                 avg_prob = sum(self._recent_probs) / len(self._recent_probs)
                 optimal_threshold = max(
                     int(TUNE_NEW_THRESHOLD / (1.0 + avg_prob * NOISE_FLOOR_COEFF)),

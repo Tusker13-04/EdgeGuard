@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Spectrogram Diagnostics - EdgeGuard</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&amp;family=JetBrains+Mono:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+  tailwind.config = {
+    darkMode: "class",
+    theme: {
+      extend: {
+        colors: {
+          "primary": "#0df287",
+          "background-light": "#f5f8f7",
+          "background-dark": "#10221a",
+          "surface": "rgba(26, 26, 36, 0.85)",
+          "page-bg": "#0F0F12",
+          "text-main": "#E2E2E8",
+          "muted": "#4A4A5E",
+          "warning": "#FFB000",
+          "critical": "#FF3B30"
+        },
+        fontFamily: {
+          "display": ["JetBrains Mono", "monospace"],
+          "body": ["Inter", "sans-serif"]
+        },
+        borderRadius: {
+          "DEFAULT": "2px",
+          "sm": "2px",
+          "md": "4px",
+          "lg": "8px",
+          "xl": "12px",
+          "full": "9999px"
+        },
+        backgroundImage: {
+          'cyber-grid': 'linear-gradient(to right, rgba(74, 74, 94, 0.1) 1px, transparent 1px), linear-gradient(to bottom, rgba(74, 74, 94, 0.1) 1px, transparent 1px)'
+        }
+      },
+    },
+  }
+</script>
+<style>
+  body {
+    font-family: 'Inter', sans-serif;
+    background-color: #0F0F12;
+    color: #E2E2E8;
+    background-image: var(--tw-gradient-stops, linear-gradient(to right, rgba(74, 74, 94, 0.1) 1px, transparent 1px), linear-gradient(to bottom, rgba(74, 74, 94, 0.1) 1px, transparent 1px));
+    background-size: 40px 40px;
+  }
+  
+  .font-display {
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .glass-panel {
+    background-color: rgba(26, 26, 36, 0.85);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(74, 74, 94, 0.5);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+  }
+
+  /* Custom Checkbox */
+  .custom-checkbox {
+    appearance: none;
+    width: 24px;
+    height: 24px;
+    border: 1px solid rgba(74, 74, 94, 0.5);
+    border-radius: 2px;
+    background-color: rgba(15, 15, 18, 0.5);
+    outline: none;
+    cursor: pointer;
+    position: relative;
+    transition: all 0.2s ease;
+  }
+
+  .custom-checkbox:checked {
+    background-color: #0df287;
+    border-color: #0df287;
+  }
+
+  .custom-checkbox:checked::after {
+    content: '';
+    position: absolute;
+    left: 8px;
+    top: 4px;
+    width: 6px;
+    height: 12px;
+    border: solid #0F0F12;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+  }
+
+  /* Heatmap Gradient Simulation */
+  .heatmap-gradient {
+    background: linear-gradient(to top, #001f3f, #0074D9, #2ECC40, #FFDC00, #FF4136, #85144b);
+  }
+
+  /* Custom Scrollbar */
+  ::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #0F0F12; 
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #4A4A5E; 
+    border-radius: 2px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #0df287; 
+  }
+</style>
+</head>
+<body class="min-h-screen flex flex-col overflow-hidden selection:bg-primary selection:text-page-bg">
+<!-- Shared TopNavBar -->
+<div class="relative flex h-auto w-full flex-col bg-page-bg/90 backdrop-blur-md border-b border-muted/50 z-50">
+<div class="layout-container flex h-full grow flex-col">
+<div class="px-8 flex flex-1 justify-center py-4">
+<div class="layout-content-container flex flex-col w-full flex-1 max-w-[1600px]">
+<header class="flex items-center justify-between whitespace-nowrap px-4 py-2">
+<div class="flex items-center gap-4 text-white">
+<div class="size-5 text-primary">
+<svg fill="none" viewbox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+<path d="M36.7273 44C33.9891 44 31.6043 39.8386 30.3636 33.69C29.123 39.8386 26.7382 44 24 44C21.2618 44 18.877 39.8386 17.6364 33.69C16.3957 39.8386 14.0109 44 11.2727 44C7.25611 44 4 35.0457 4 24C4 12.9543 7.25611 4 11.2727 4C14.0109 4 16.3957 8.16144 17.6364 14.31C18.877 8.16144 21.2618 4 24 4C26.7382 4 29.123 8.16144 30.3636 14.31C31.6043 8.16144 33.9891 4 36.7273 4C40.7439 4 44 12.9543 44 24C44 35.0457 40.7439 44 36.7273 44Z" fill="currentColor"></path>
+</svg>
+</div>
+<h2 class="text-white text-xl font-display font-bold leading-tight tracking-[2px] uppercase">EDGEGUARD // CPM</h2>
+</div>
+<div class="flex flex-1 justify-end gap-8">
+<nav class="flex items-center gap-8 font-display">
+<a class="text-muted hover:text-primary transition-colors text-sm font-medium leading-normal tracking-wide uppercase" href="#">Command Center</a>
+<a class="text-primary text-sm font-bold leading-normal tracking-wide uppercase border-b-2 border-primary pb-1" href="#">Spectrogram</a>
+<a class="text-muted hover:text-primary transition-colors text-sm font-medium leading-normal tracking-wide uppercase" href="#">Prognostics</a>
+<a class="text-muted hover:text-primary transition-colors text-sm font-medium leading-normal tracking-wide uppercase" href="#">Reflex Stream</a>
+</nav>
+<div class="flex items-center gap-3 border-l border-muted/50 pl-8">
+<span class="material-symbols-outlined text-primary text-sm animate-pulse">sensors</span>
+<span class="font-display text-primary text-xs font-bold tracking-widest">&lt;1MS LATENCY</span>
+</div>
+</div>
+</header>
+</div>
+</div>
+</div>
+</div>
+<!-- Main Content Grid -->
+<main class="flex-1 w-full max-w-[1600px] mx-auto p-6 grid grid-cols-[1fr_320px] gap-6 overflow-hidden h-[calc(100vh-80px)]">
+<!-- Left Column: Charts -->
+<section class="flex flex-col gap-6 h-full overflow-hidden">
+<!-- Top Header -->
+<div class="flex justify-between items-end">
+<div>
+<h1 class="font-display text-2xl font-bold tracking-[2px] text-white uppercase">SPECTROGRAM DIAGNOSTICS</h1>
+<p class="text-muted text-sm mt-1 font-body">ISOLATING MECHANICAL FAULT FREQUENCIES (NODE: BRG-04)</p>
+</div>
+<div class="flex items-center gap-4">
+<div class="glass-panel px-4 py-2 flex items-center gap-2 rounded-sm">
+<span class="w-2 h-2 rounded-full bg-primary animate-pulse"></span>
+<span class="font-display text-xs text-text-main">LIVE TELEMETRY</span>
+</div>
+</div>
+</div>
+<!-- FFT Heatmap Area -->
+<div class="glass-panel flex-1 flex flex-col rounded-sm relative overflow-hidden group">
+<!-- Header -->
+<div class="border-b border-muted/50 px-4 py-3 flex justify-between items-center bg-surface/50">
+<h3 class="font-display text-sm font-semibold tracking-wide text-white">FREQUENCY VS TIME (0-200 Hz)</h3>
+<div class="flex gap-2">
+<button class="p-1 text-muted hover:text-white transition-colors"><span class="material-symbols-outlined text-[20px]">zoom_in</span></button>
+<button class="p-1 text-muted hover:text-white transition-colors"><span class="material-symbols-outlined text-[20px]">pan_tool</span></button>
+<button class="p-1 text-muted hover:text-white transition-colors"><span class="material-symbols-outlined text-[20px]">download</span></button>
+</div>
+</div>
+<!-- Canvas Area (Mockup) -->
+<div class="flex-1 relative bg-[#0a0a0d] w-full h-full cursor-crosshair overflow-hidden">
+<!-- Y Axis Labels (Frequency) -->
+<div class="absolute left-0 top-0 bottom-8 w-12 flex flex-col justify-between items-end pr-2 py-4 z-10 font-display text-[10px] text-muted bg-gradient-to-r from-[#0a0a0d] to-transparent">
+<span>200</span>
+<span>150</span>
+<span>100</span>
+<span>50</span>
+<span>0</span>
+</div>
+<!-- Simulated Heatmap Grid & Data -->
+<div class="absolute inset-y-0 left-12 right-0 bottom-8 border-l border-b border-muted/30">
+<!-- Horizontal Grid Lines -->
+<div class="absolute inset-0 flex flex-col justify-between opacity-10">
+<div class="w-full h-[1px] bg-white"></div>
+<div class="w-full h-[1px] bg-white"></div>
+<div class="w-full h-[1px] bg-white"></div>
+<div class="w-full h-[1px] bg-white"></div>
+<div class="w-full h-[1px] bg-white"></div>
+</div>
+<!-- Mock Heatmap Visualization Layer -->
+<div class="absolute inset-0 opacity-80" style="background: 
+            radial-gradient(circle at 70% 60%, rgba(255,59,48,0.8) 0%, transparent 15%),
+            radial-gradient(circle at 72% 58%, rgba(255,176,0,0.6) 0%, transparent 20%),
+            radial-gradient(circle at 30% 20%, rgba(46,204,64,0.4) 0%, transparent 30%),
+            linear-gradient(180deg, rgba(0,31,63,0.1) 0%, rgba(0,116,217,0.2) 100%);
+            filter: blur(4px);">
+</div>
+<!-- Anomaly Overlay (Simulating Isolated 120Hz fault) -->
+<div class="absolute left-0 right-0 top-[40%] h-8 bg-critical/10 border-y border-critical/30 animate-pulse"></div>
+</div>
+<!-- X Axis Labels (Time) -->
+<div class="absolute bottom-0 left-12 right-0 h-8 flex justify-between items-center px-4 font-display text-[10px] text-muted border-t border-muted/30 bg-[#0a0a0d]/80">
+<span>-60s</span>
+<span>-45s</span>
+<span>-30s</span>
+<span>-15s</span>
+<span>NOW</span>
+</div>
+</div>
+</div>
+<!-- Amplitude Line Graph Area -->
+<div class="glass-panel h-64 flex flex-col rounded-sm relative">
+<!-- Header -->
+<div class="border-b border-muted/50 px-4 py-2 flex justify-between items-center bg-surface/50">
+<h3 class="font-display text-sm font-semibold tracking-wide text-white">ABSOLUTE PEAK ACCELERATION (g)</h3>
+<span class="font-display text-[10px] text-warning border border-warning/30 px-2 py-0.5 rounded-sm bg-warning/10">THRESHOLD: 4.5g</span>
+</div>
+<!-- Chart Area -->
+<div class="flex-1 relative bg-[#0a0a0d] p-4">
+<!-- Y Axis -->
+<div class="absolute left-0 top-4 bottom-4 w-10 flex flex-col justify-between items-end pr-2 font-display text-[10px] text-muted">
+<span>6.0</span>
+<span>4.0</span>
+<span>2.0</span>
+<span>0.0</span>
+</div>
+<!-- Graph Box -->
+<div class="absolute inset-y-4 left-10 right-4 border-l border-b border-muted/30">
+<!-- Threshold Line -->
+<div class="absolute w-full top-[25%] h-[1px] border-t border-dashed border-warning/50"></div>
+<!-- Mock SVG Line -->
+<svg class="absolute inset-0 w-full h-full" preserveaspectratio="none" viewbox="0 0 100 100">
+<path class="drop-shadow-[0_0_8px_rgba(13,242,135,0.5)]" d="M0,80 L10,75 L20,85 L30,60 L40,70 L50,80 L60,40 L70,10 L80,30 L90,20 L100,25" fill="none" stroke="#0df287" stroke-width="1.5"></path>
+</svg>
+</div>
+</div>
+</div>
+</section>
+<!-- Right Column: Sidebar Filters -->
+<aside class="flex flex-col gap-4 h-full">
+<!-- Filter Panel -->
+<div class="glass-panel rounded-sm flex-1 flex flex-col">
+<div class="border-b border-muted/50 px-4 py-3 bg-surface/80">
+<h3 class="font-display text-sm font-semibold tracking-wide text-white flex items-center gap-2">
+<span class="material-symbols-outlined text-[18px]">filter_alt</span>
+          FREQUENCY BANDS
+        </h3>
+</div>
+<div class="p-4 flex flex-col gap-4 overflow-y-auto">
+<!-- Toggle 1 -->
+<label class="flex items-start gap-3 cursor-pointer group">
+<input class="custom-checkbox mt-0.5" type="checkbox"/>
+<div class="flex flex-col">
+<span class="font-display text-sm text-text-main group-hover:text-white transition-colors">1X RPM Unbalance</span>
+<span class="font-body text-xs text-muted">29.5 - 30.5 Hz</span>
+</div>
+</label>
+<!-- Toggle 2 -->
+<label class="flex items-start gap-3 cursor-pointer group">
+<input class="custom-checkbox mt-0.5" type="checkbox"/>
+<div class="flex flex-col">
+<span class="font-display text-sm text-text-main group-hover:text-white transition-colors">2X Misalignment</span>
+<span class="font-body text-xs text-muted">59.0 - 61.0 Hz</span>
+</div>
+</label>
+<!-- Toggle 3 (Active/Fault) -->
+<label class="flex items-start gap-3 cursor-pointer group">
+<input checked="" class="custom-checkbox mt-0.5" type="checkbox"/>
+<div class="flex flex-col">
+<div class="flex items-center gap-2">
+<span class="font-display text-sm text-primary font-semibold">BPFO Outer Race</span>
+<span class="material-symbols-outlined text-[14px] text-critical">warning</span>
+</div>
+<span class="font-body text-xs text-muted">118.5 - 121.5 Hz</span>
+</div>
+</label>
+<!-- Toggle 4 -->
+<label class="flex items-start gap-3 cursor-pointer group">
+<input class="custom-checkbox mt-0.5" type="checkbox"/>
+<div class="flex flex-col">
+<span class="font-display text-sm text-text-main group-hover:text-white transition-colors">BPFI Inner Race</span>
+<span class="font-body text-xs text-muted">145.2 - 148.8 Hz</span>
+</div>
+</label>
+<!-- Toggle 5 -->
+<label class="flex items-start gap-3 cursor-pointer group">
+<input class="custom-checkbox mt-0.5" type="checkbox"/>
+<div class="flex flex-col">
+<span class="font-display text-sm text-text-main group-hover:text-white transition-colors">BSF Ball Spin</span>
+<span class="font-body text-xs text-muted">45.1 - 46.9 Hz</span>
+</div>
+</label>
+</div>
+<!-- Diagnostic Summary Bottom -->
+<div class="mt-auto border-t border-muted/50 p-4 bg-surface/50">
+<h4 class="font-display text-xs text-muted mb-2">ACTIVE ANOMALY SIGNATURE</h4>
+<div class="bg-critical/10 border border-critical/30 rounded-sm p-3">
+<div class="flex justify-between items-center mb-1">
+<span class="font-display text-xs text-critical font-bold">120.4 Hz PEAK</span>
+<span class="font-display text-xs text-text-main">5.2g</span>
+</div>
+<p class="font-body text-[11px] text-text-main/70 leading-tight">Harmonic match for BPFO bearing outer race defect. Recommend immediate inspection of Node BRG-04.</p>
+</div>
+</div>
+</div>
+</aside>
+</main>
+</body></html>

@@ -199,6 +199,8 @@ def run_live(
         receiver.put = lambda cmd, payload: None
 
     engine = EdgeGuardEngine(bridge=receiver)
+    from src.inference import AdaptiveSampler
+    sampler = AdaptiveSampler()
 
     def _shutdown(sig, frame):
         stop_event.set()
@@ -244,24 +246,14 @@ def run_live(
                 
             import numpy as np
             accel_data = np.array(snap).reshape(-1, 4)[:, :3]
-            variance = np.var(accel_data)
             
-            if is_low_power:
-                if variance > 0.05:
-                    log.info("Vibration detected, waking up from low_power mode.")
-                    low_power_event.clear()
-                    if hasattr(receiver, "idle_start"):
-                        del receiver.idle_start
-            else:
-                if variance < 0.01:
-                    if not hasattr(receiver, "idle_start"):
-                        receiver.idle_start = time.time()
-                    elif time.time() - receiver.idle_start > 300:
-                        log.info("No vibration for 5 minutes, engaging adaptive low_power mode.")
-                        low_power_event.set()
-                else:
-                    if hasattr(receiver, "idle_start"):
-                        del receiver.idle_start
+            action = sampler.evaluate(accel_data, is_low_power)
+            if action == "wake":
+                log.info("Vibration detected, waking up from low_power mode.")
+                low_power_event.clear()
+            elif action == "sleep":
+                log.info("No vibration for 5 minutes, engaging adaptive low_power mode.")
+                low_power_event.set()
                 
             t0 = time.perf_counter()
             telemetry = engine.process_batch(

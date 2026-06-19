@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>EdgeGuard - Command Center</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+  tailwind.config = {
+    darkMode: "class",
+    theme: {
+      extend: {
+        colors: {
+          "primary": "#0df287",
+          "background-light": "#f5f8f7",
+          "background-dark": "#10221a",
+          "surface": "rgba(26, 26, 36, 0.85)",
+          "muted": "#4a4a5e",
+          "warning": "#ffb000",
+          "critical": "#ff3b30"
+        },
+        fontFamily: {
+          "display": ["JetBrains Mono", "monospace"],
+          "body": ["Inter", "sans-serif"]
+        },
+        borderRadius: {"DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem", "sm": "2px"},
+      },
+    },
+  }
+</script>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&amp;family=Inter:wght@400;500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+  body {
+    background-color: #0f0f12;
+    background-image: 
+      linear-gradient(rgba(74, 74, 94, 0.15) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(74, 74, 94, 0.15) 1px, transparent 1px);
+    background-size: 40px 40px;
+    color: #e2e2e8;
+  }
+  .glass-panel {
+    background: var(--color-surface, rgba(26, 26, 36, 0.85));
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(74, 74, 94, 0.5);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+  }
+  .json-key { color: #e2e2e8; }
+  .json-string { color: #ffb000; }
+  .json-number { color: #0df287; }
+  
+  /* Custom scrollbar for terminal */
+  .terminal-scroll::-webkit-scrollbar {
+    width: 4px;
+  }
+  .terminal-scroll::-webkit-scrollbar-track {
+    background: rgba(26, 26, 36, 0.5);
+  }
+  .terminal-scroll::-webkit-scrollbar-thumb {
+    background: #4a4a5e;
+    border-radius: 2px;
+  }
+</style>
+</head>
+<body class="font-display h-screen flex flex-col overflow-hidden">
+<!-- Shared Component: TopNavBar -->
+<header class="flex items-center justify-between whitespace-nowrap border-b border-solid border-b-muted bg-background-dark/90 px-10 py-3 shrink-0 h-[64px]">
+<div class="flex items-center gap-4 text-white">
+<div class="size-4 text-primary">
+<svg fill="none" viewbox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+<path d="M44 4H30.6666V17.3334H17.3334V30.6666H4V44H44V4Z" fill="currentColor"></path>
+</svg>
+</div>
+<h2 class="text-white text-lg font-bold leading-tight tracking-[2px] uppercase">EDGEGUARD // COGNITIVE PREDICTIVE MAINTENANCE</h2>
+</div>
+<div class="flex gap-2">
+<button class="flex min-w-[84px] max-w-[480px] cursor-pointer items-center justify-center overflow-hidden rounded-sm h-10 px-4 bg-primary text-background-dark text-xs font-bold uppercase tracking-[2px]">
+<span class="truncate">Diagnostic Toggle</span>
+</button>
+<button class="flex min-w-[84px] max-w-[480px] cursor-pointer items-center justify-center overflow-hidden rounded-sm h-10 px-4 bg-background-dark border border-primary text-primary text-xs font-bold uppercase tracking-[2px]">
+<span class="truncate">SYS.LATENCY: &lt;1ms</span>
+</button>
+</div>
+</header>
+<!-- Main Grid Layout -->
+<main class="flex-1 grid grid-cols-[300px_1fr_350px] gap-6 p-6 min-h-0">
+<!-- Left Column: KPIs -->
+<section class="flex flex-col gap-6 overflow-y-auto terminal-scroll pr-2">
+<!-- Health Index -->
+<div class="glass-panel rounded-sm p-4 flex flex-col items-center justify-center relative">
+<h3 class="text-muted text-xs uppercase tracking-widest absolute top-4 left-4">System Health</h3>
+<div class="relative w-[120px] h-[120px] mt-6 flex items-center justify-center">
+<svg class="w-full h-full transform -rotate-90" viewbox="0 0 120 120">
+<circle cx="60" cy="60" fill="none" r="54" stroke="#4a4a5e" stroke-width="8"></circle>
+<circle class="transition-all duration-1000" cx="60" cy="60" fill="none" r="54" stroke="#0df287" stroke-dasharray="339.29" stroke-dashoffset="30" stroke-width="8"></circle>
+</svg>
+<div class="absolute inset-0 flex flex-col items-center justify-center">
+<span class="text-3xl font-bold text-primary">92</span>
+<span class="text-[10px] text-muted">%</span>
+</div>
+</div>
+</div>
+<!-- Anomaly Probability -->
+<div class="glass-panel rounded-sm p-4">
+<div class="flex justify-between items-end mb-2">
+<h3 class="text-muted text-xs uppercase tracking-widest">Anomaly Prob</h3>
+<span class="text-warning font-bold">18.4%</span>
+</div>
+<div class="h-2 w-full bg-background-dark rounded-sm overflow-hidden border border-muted">
+<div class="h-full bg-warning w-[18.4%] rounded-sm"></div>
+</div>
+</div>
+<!-- Sensor Metrics -->
+<div class="grid grid-cols-2 gap-4">
+<div class="glass-panel rounded-sm p-4 flex flex-col gap-1">
+<span class="text-muted text-[10px] uppercase">Rotor Temp</span>
+<span class="text-xl font-bold">88.4°C</span>
+</div>
+<div class="glass-panel rounded-sm p-4 flex flex-col gap-1">
+<span class="text-muted text-[10px] uppercase">Vibration (g)</span>
+<span class="text-xl font-bold">1.02</span>
+</div>
+<div class="glass-panel rounded-sm p-4 flex flex-col gap-1 col-span-2">
+<span class="text-muted text-[10px] uppercase">Acoustic FFT Pk</span>
+<span class="text-xl font-bold">120 Hz</span>
+</div>
+</div>
+</section>
+<!-- Center Column: 3D Twin -->
+<section class="glass-panel rounded-sm relative flex flex-col">
+<div class="absolute top-4 left-4 z-10 flex items-center gap-2">
+<span class="flex h-2 w-2 relative">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
+<span class="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
+</span>
+<span class="text-xs uppercase tracking-widest text-primary">Live Twin Active</span>
+</div>
+<div class="flex-1 relative w-full h-full rounded-sm overflow-hidden">
+<!-- 3D Scene Animation Placeholder -->
+<threejs-scene class="absolute inset-0 w-full h-full" src="{{DATA:ANIMATION:ANIMATION_1}}"></threejs-scene>
+<!-- Overlay Nodes -->
+<div class="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 cursor-crosshair group">
+<div class="w-4 h-4 rounded-full border-2 border-primary bg-background-dark flex items-center justify-center shadow-[0_0_10px_#0df287]">
+<div class="w-1 h-1 bg-primary rounded-full"></div>
+</div>
+<!-- Tooltip -->
+<div class="absolute top-full mt-2 left-1/2 -translate-x-1/2 glass-panel p-2 opacity-0 group-hover:opacity-100 transition-opacity w-max z-20 pointer-events-none">
+<div class="text-[10px] uppercase text-muted mb-1 border-b border-muted pb-1">BEARING_FW</div>
+<div class="flex justify-between gap-4 text-xs">
+<span>Temp:</span>
+<span class="text-warning">94.2°C</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Scanning Laser effect (CSS representation) -->
+<div class="absolute inset-0 pointer-events-none overflow-hidden rounded-sm">
+<div class="w-full h-[2px] bg-primary/50 shadow-[0_0_8px_#0df287] animate-[scan_4s_ease-in-out_infinite]" style="animation: scan 4s linear infinite; transform: translateY(-100%);"></div>
+</div>
+<style>
+      @keyframes scan {
+        0% { transform: translateY(-100px); opacity: 0; }
+        10% { opacity: 1; }
+        90% { opacity: 1; }
+        100% { transform: translateY(800px); opacity: 0; }
+      }
+    </style>
+</section>
+<!-- Right Column: Stream & RUL -->
+<section class="flex flex-col gap-6 min-h-0">
+<!-- RUL Countdown -->
+<div class="glass-panel rounded-sm p-6 border-warning/50 shadow-[0_0_20px_rgba(255,176,0,0.1)] flex flex-col items-center justify-center text-center">
+<h3 class="text-warning text-xs uppercase tracking-widest mb-2 flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px]" data-icon="warning">warning</span>
+        Remaining Useful Life
+      </h3>
+<div class="text-3xl font-bold tracking-tight text-white mb-1">
+        T-MINUS 14d 08h 22m
+      </div>
+<div class="text-[10px] text-muted">Predicted Critical Failure Threshold: 85%</div>
+</div>
+<!-- Reflex Event Stream -->
+<div class="glass-panel rounded-sm flex-1 flex flex-col min-h-0">
+<div class="border-b border-muted p-3 flex justify-between items-center bg-background-dark/50">
+<h3 class="text-xs uppercase tracking-widest">Reflex Stream</h3>
+<div class="flex gap-2">
+<span class="text-[10px] px-1 bg-muted/30 text-white rounded-sm cursor-pointer hover:bg-muted/50">[ALL]</span>
+<span class="text-[10px] px-1 text-muted cursor-pointer hover:text-white">[WARN]</span>
+<span class="text-[10px] px-1 text-critical cursor-pointer hover:text-white">[CRIT]</span>
+</div>
+</div>
+<div class="p-4 overflow-y-auto terminal-scroll text-[11px] font-display space-y-2 flex-1 flex flex-col justify-end">
+<div>
+<span class="text-muted">[14:02:41.998]</span> <span class="json-key">{ "node": </span><span class="json-string">"stator_coil"</span><span class="json-key">, "temp_c": </span><span class="json-number">65.2</span><span class="json-key">, "status": </span><span class="json-string">"OK"</span> <span class="json-key">}</span>
+</div>
+<div>
+<span class="text-muted">[14:02:42.502]</span> <span class="json-key">{ "node": </span><span class="json-string">"bearing_rw"</span><span class="json-key">, "vib_amp": </span><span class="json-number">0.4</span><span class="json-key">, "status": </span><span class="json-string">"OK"</span> <span class="json-key">}</span>
+</div>
+<div class="bg-warning/10 border-l-2 border-warning pl-2 py-1 -ml-2">
+<span class="text-muted">[14:02:44.001]</span> <span class="json-key">{ "node": </span><span class="json-string">"bearing_fw"</span><span class="json-key">, "temp_c": </span><span class="json-number">88.4</span><span class="json-key">, "status": </span><span class="text-warning">"WARN"</span> <span class="json-key">}</span>
+</div>
+<div>
+<span class="text-muted">[14:02:44.105]</span> <span class="json-key">{ "sys": </span><span class="json-string">"diag_bus"</span><span class="json-key">, "action": </span><span class="json-string">"fft_trigger"</span><span class="json-key">, "target": </span><span class="json-string">"bearing_fw"</span> <span class="json-key">}</span>
+</div>
+<div class="flex items-center gap-2 mt-2">
+<span class="w-2 h-4 bg-primary animate-pulse inline-block"></span>
+</div>
+</div>
+</div>
+</section>
+</main>
+</body></html>

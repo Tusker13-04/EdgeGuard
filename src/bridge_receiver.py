@@ -141,6 +141,11 @@ class BridgeReceiver(BaseReceiver):
                     log.info("[BridgeReceiver] Connecting to %s", self.socket_path)
                     sock.connect(self.socket_path)
 
+                    req1 = msgpack.packb([0, 1, "$/register", ["sensor_batch"]])
+                    req2 = msgpack.packb([0, 2, "$/register", ["anomaly_trigger"]])
+                    req3 = msgpack.packb([0, 3, "$/register", ["sensor_point"]])
+                    sock.sendall(req1 + req2 + req3)
+
                     unpacker = msgpack.Unpacker(raw=False)
 
                     while not stop_event.is_set():
@@ -162,14 +167,35 @@ class BridgeReceiver(BaseReceiver):
 
                             if msg_type == 2 and method == "sensor_batch":
                                 if isinstance(params, (list, tuple)) and len(params) > 0:
-                                    self._handle_batch(params[0], buf)
+                                    data = params[0]
+                                    if isinstance(data, list):
+                                        data = bytes(data)
+                                    self._handle_batch(data, buf)
+
+                            elif msg_type == 2 and method == "sensor_point":
+                                if isinstance(params, (list, tuple)) and len(params) >= 6:
+                                    ts, seq, x, y, z, temp = params[:6]
+                                    try:
+                                        feat = np.array([x, y, z, temp], dtype=np.float32)
+                                    except ValueError as e:
+                                        log.error(f"Failed to create array. params: {params}")
+                                        raise e
+                                    with self._lock:
+                                        self.total_received += 1
+                                        if self._last_seq is not None:
+                                            gap = (seq - self._last_seq - 1) & 0xFFFFFFFF
+                                            if 0 < gap < 10000:
+                                                self.total_dropped += gap
+                                        self._last_seq = seq
+                                        self._last_temp_c = round(float(temp), 2)
+                                    buf.add_row(feat)
 
                             elif msg_type == 2 and method == "anomaly_trigger":
                                 # ── FIX CRITIQUE 1: MCU autonomous escalation ──
-                                if isinstance(params, dict):
-                                    self._handle_anomaly_trigger(params)
+                                if isinstance(params, (list, tuple)) and len(params) > 0:
+                                    self._handle_anomaly_trigger({"rms_mg": params[0]})
                                 else:
-                                    log.warning("[BridgeReceiver] anomaly_trigger params must be a dict")
+                                    log.warning(f"[BridgeReceiver] anomaly_trigger params must be a list with at least 1 element, got: {params}")
 
             except (socket.error, ConnectionRefusedError) as exc:
                 if not stop_event.is_set():
